@@ -38,20 +38,21 @@ import time
 EV_KEY = 0x01
 EV_ABS = 0x03
 
-# Measured against an Xbox One S pad on xone, rather than inferred from the
-# header names — because the names disagree with the hardware.
-#
-# input-event-codes.h aliases BTN_X to BTN_NORTH (0x133) and BTN_Y to BTN_WEST
-# (0x134). On an Xbox pad, though, X is the *west* button and Y is the *north*
-# one, so reading the aliases as positions gets X and Y backwards. The driver
-# emits by letter, not by position:
+# Taken from the driver, which is the only source that settles it:
 #
 #   A 0x130   B 0x131   X 0x133   Y 0x134
 #
-# Verified by pressing each button and recording the raw code. This is the
-# classic way to ship a visualiser where pressing X lights up Y, and it is
-# worth re-measuring rather than trusting this comment if a pad ever looks
-# transposed.
+# The trap is that input-event-codes.h aliases the letters to *positions* using
+# a Nintendo-style face layout — BTN_X is BTN_NORTH, BTN_Y is BTN_WEST — while
+# an Xbox pad has X in the west position and Y in the north one. Read the
+# positional names and reason about where the buttons are on the pad, and X and
+# Y come out swapped.
+#
+# xone settles it by emitting the letter macros directly
+# (driver/gamepad.c: input_report_key(dev, BTN_X, ...)), so the letter is what
+# the driver means and the position is a red herring. hid_xpadneo does the
+# same. If a pad ever looks transposed, read its driver rather than reasoning
+# from the header names — and rather than trusting this comment.
 BUTTONS = {
     0x130: "a", 0x131: "b", 0x133: "x", 0x134: "y",
     0x136: "lb", 0x137: "rb",

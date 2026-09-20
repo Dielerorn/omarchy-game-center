@@ -182,11 +182,13 @@ else
   bad "dongles enumerated"
 fi
 
-# The button map was measured against a real Xbox pad, not read off the header
-# names, because input-event-codes.h aliases BTN_X to BTN_NORTH (0x133) and
-# BTN_Y to BTN_WEST (0x134) while an Xbox pad has X in the west position and Y
-# in the north one. Trusting the aliases as positions ships a visualiser where
-# pressing X lights up Y. Verified: A=0x130 B=0x131 X=0x133 Y=0x134.
+# The button map comes from xone's driver/gamepad.c, which emits the letter
+# macros directly: BTN_A/BTN_B/BTN_X/BTN_Y = 0x130/0x131/0x133/0x134.
+#
+# input-event-codes.h aliases those letters to *positions* in a Nintendo-style
+# layout (BTN_X is BTN_NORTH), and an Xbox pad has X in the west position — so
+# reasoning from where the buttons physically sit transposes X and Y, which is
+# exactly the bug this pins.
 if python3 - "$PLUGIN_DIR/bin/gc-pads" <<'PYEOF' >/dev/null 2>&1
 import sys, re
 src = open(sys.argv[1]).read()
@@ -195,8 +197,8 @@ want = {"0x130": "a", "0x131": "b", "0x133": "x", "0x134": "y"}
 got = dict(re.findall(r"(0x1[0-9a-f]{2}):\s*\"(\w+)\"", block))
 sys.exit(0 if all(got.get(k) == v for k, v in want.items()) else 1)
 PYEOF
-then ok "button map matches the measured Xbox codes"
-else bad "button map matches the measured Xbox codes (X/Y likely transposed)"; fi
+then ok "button map matches the xone driver's BTN_A/B/X/Y"
+else bad "button map matches the xone driver (X/Y likely transposed)"; fi
 
 # ff_effect is 48 bytes on x86_64 and the ioctl number is derived from it, so a
 # wrong struct means rumble silently does nothing on some machines.

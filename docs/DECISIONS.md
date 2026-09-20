@@ -137,21 +137,33 @@ Rumble over evdev works with no root and no udev rule: `sizeof(ff_effect)` is
 48 bytes on x86_64, `EVIOCSFF` is `0x40304580`, and a 70/40 effect for 600ms
 returns in 0.68s.
 
-## The Xbox button codes are measured, not read off the header names
-
-`input-event-codes.h` aliases `BTN_X` to `BTN_NORTH` (0x133) and `BTN_Y` to
-`BTN_WEST` (0x134). On an Xbox pad X is the **west** button and Y is the
-**north** one, so reading those aliases as positions transposes X and Y. The
-driver emits by letter:
+## The Xbox button codes come from the driver, not from the header names
 
 ```
 A 0x130    B 0x131    X 0x133    Y 0x134
 ```
 
-Measured by pressing each button on an Xbox One S over the dongle and recording
-raw codes. The first attempt shipped the transposition and the live view lit
-the wrong chip; `tests/run.sh` now asserts the table. If a pad ever looks
-transposed, re-measure rather than trusting this note.
+`input-event-codes.h` aliases the letters to *positions* using a Nintendo-style
+face layout — `BTN_X` is `BTN_NORTH`, `BTN_Y` is `BTN_WEST` — while an Xbox pad
+has X in the west position and Y in the north one. Read the positional names,
+reason about where the buttons physically sit, and X and Y come out swapped.
+That is what the first version of the table did, and the live view lit the
+wrong chip.
+
+`xone` settles it by emitting the letter macros directly
+(`driver/gamepad.c:406-409`, `input_report_key(dev, BTN_X, ...)`), so the letter
+is what the driver means and the position is a red herring. `hid_xpadneo` does
+the same.
+
+Worth recording how this was *actually* pinned down, because the first two
+attempts were not sound. Asking a person to press A, B, X, Y in order and
+reading back the codes only works if they press in that order — the first
+capture turned out to be random presses, and the inference drawn from it
+("B and Y are crossed") was nonsense built on bad data. The second capture was
+in order and gave the right answer, but it was still an answer that depended on
+someone else's care. Reading the driver source is independent of all that, and
+should have been the first move rather than the third. `tests/run.sh` asserts
+the table so the question stays settled.
 
 ## Live input reads evdev directly instead of using SDL
 

@@ -3,6 +3,7 @@ import qs.Commons
 import qs.Ui
 import "session"
 import "replay"
+import "controllers"
 
 // Bar chip plus popout. The panel owns view state only — which tab is
 // showing, where the keyboard cursor is — while everything that outlives the
@@ -31,18 +32,31 @@ Panel {
   readonly property var replay: gameCenter ? gameCenter.replay : null
   readonly property bool replayArmed: replay ? replay.armed : false
   readonly property var clipStore: gameCenter ? gameCenter.clipStore : null
+  readonly property var padStore: gameCenter ? gameCenter.pads : null
 
   // The probe costs four subprocesses, so it runs when the panel opens rather
   // than on a timer. While the panel is closed the marker watcher is the only
   // thing keeping state fresh, which is enough for the chip.
   onOpenedChanged: {
-    if (!opened) return
+    if (!opened) {
+      // Nothing keeps probing once the popout is gone.
+      if (padStore) padStore.watching = false
+      return
+    }
     if (session) session.refresh()
     if (replay) replay.refresh()
     // One find per open, not a watcher on the video folder: that can live on a
     // network mount and a FileView there would stall the event loop.
     if (clipStore) clipStore.refresh()
+    if (padStore) {
+      padStore.refresh()
+      padStore.watching = (root.tab === "pads")
+    }
   }
+
+  // Battery level changes with no filesystem event behind it, so the pads tab
+  // polls slowly — but only while it is the tab being looked at.
+  onTabChanged: if (padStore) padStore.watching = (tab === "pads" && opened)
 
   readonly property int panelWidth: setting("panelWidth", 380)
 
@@ -274,16 +288,12 @@ Panel {
           fontFamily: root.fontFamily
         }
 
-        // M4 replaces this.
-        Text {
+        PadsTab {
           width: parent.width
           visible: root.tab === "pads"
-          wrapMode: Text.WordWrap
-          color: root.panelForeground
-          opacity: 0.6
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          text: "Controllers land in M4."
+          pads: root.padStore
+          foreground: root.panelForeground
+          fontFamily: root.fontFamily
         }
       }
     }

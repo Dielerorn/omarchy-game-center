@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "session"
 import "replay"
+import "controllers"
 
 // Owner of everything that has to stay correct while nobody is looking.
 //
@@ -54,8 +55,10 @@ QtObject {
     function onClipSaved(path) { root.clipStore.refresh() }
   }
 
-  // Pads land in M4.
-  property int padCount: 0
+  // M4. Controller inventory: probed on hotplug, not polled.
+  property PadController pads: PadController { pluginDir: root.pluginDir }
+
+  readonly property int padCount: pads.padCount
 
   function statusJson() {
     return JSON.stringify({

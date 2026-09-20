@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""One-shot controller inventory. Python standard library only.
+
+This is the half of the controller support that must work on a bare install:
+which pads are connected, what they are, how much battery they have, and — the
+part that actually shapes the UI — what each one can *do*. Live input needs
+SDL3 and is a separate helper; everything here works without it.
+
+Capabilities are computed here rather than in QML on purpose. The panel should
+never show a control that silently does nothing, and whether a control works
+depends on the driver, on the connection, and sometimes on whether a udev rule
+has been installed. That is a question about this machine, so it gets answered
+where the machine is, once, and the answer is data.
+
+Prints one JSON object on stdout.
+"""
+
+import glob
+import json
+import os
+import re
+import sys
+
+PROC_DEVICES = "/proc/bus/input/devices"
+LEDS = "/sys/class/leds"
+USB_DEVICES = "/sys/bus/usb/devices"
+
+# What each driver can actually do on Linux. Anything not listed gets the
+# conservative "we can read it, we cannot poke it" treatment.
+#
+# The Xbox numbers are the ones that surprise people: xone reports battery only
+# as a five-level bucket and never reports charging, because the driver
+# registers CAPACITY_LEVEL and not CAPACITY. Inventing a percentage from that
+# would be a lie, so the UI draws five segments.
+DRIVER_CAPS = {
+    "xone_gip_gamepad": {
+        "rumble": True,
+        "triggerRumble": False,     # hardware has the motors; xone maps only strong/weak
+        "batteryKind": "level",     # Unknown/Low/Normal/High/Full
+        "charging": False,          # xone never reports Charging
+        "led": True,                # via /sys/class/leds, needs a udev rule
+        "deadzone": False,
+    },
+    "hid_xpadneo": {
+        "rumble": True,
+        "triggerRumble": True,
+        "batteryKind": "level",     # upgraded to "percent" below if the node has one
+        "charging": True,
+        "led": False,
+        "deadzone": False,
+    },
+    "xpad": {
+        "rumble": True,
+        "triggerRumble": False,
+        "batteryKind": "none",
+        "charging": False,
+        "led": False,
+        "deadzone": False,
+    },
+    "hid_playstation": {
+        "rumble": True,
+        "triggerRumble": True,
+        "batteryKind": "percent",
+        "charging": True,
+        "led": True,
+        "deadzone": False,
+    },
+}
+
+DEFAULT_CAPS = {
+    "rumble": False,
+    "triggerRumble": False,
+    "batteryKind": "none",
+    "charging": False,
+    "led": False,
+    "deadzone": False,
+}
+
+
+def read(path, default=""):
+    try:
+        with open(path, "r", errors="replace") as fh:
+            return fh.read().strip()
+    except OSError:
+        return default
+
+
+def parse_proc_devices():
+    """Yield one dict per input device from /proc/bus/input/devices."""
+    blocks, current = [], {}
+    try:
+        with open(PROC_DEVICES, "r", errors="replace") as fh:
+            for line in fh:
+                line = line.rstrip("\n")
+                if not line:
+                    if current:
+                        blocks.append(current)
+                        current = {}
+                    continue
+                tag, _, rest = line.partition(": ")
+                if tag == "I":
+                    for part in rest.split():
+                        k, _, v = part.partition("=")
+                        current[k.lower()] = v
+                elif tag == "N":
+                    m = re.match(r'Name="(.*)"', rest)
+                    current["name"] = m.group(1) if m else rest
+                elif tag == "S":
+                    current["sysfs"] = rest.replace("Sysfs=", "")
+                elif tag == "U":
+                    current["uniq"] = rest.replace("Uniq=", "")
+                elif tag == "H":
+                    current["handlers"] = rest.replace("Handlers=", "").split()
+    except OSError:
+        return []
+    if current:
+        blocks.append(current)
+    return blocks
+
+
+def driver_for(sysfs_rel):
+    """Walk up the sysfs tree looking for the module that claimed the device.
+
+    sysfs spells the driver with hyphens ("xone-gip-gamepad") while /proc/modules
+    spells the same thing with underscores ("xone_gip_gamepad"). Normalising is
+    not cosmetic: a mismatch here silently drops every pad to the default
+    capability set, which reads as "this controller has no rumble".
+    """
+    path = "/sys" + sysfs_rel
+    for _ in range(6):
+        path = os.path.dirname(path)
+        if path in ("/sys", "/", ""):
+            break
+        link = os.path.join(path, "driver")
+        if os.path.islink(link):
+            return os.path.basename(os.path.realpath(link)).replace("-", "_")
+    return ""
+
+
+def battery_for(sysfs_rel):
+    """Find a power_supply node belonging to this device or one of its parents."""
+    path = "/sys" + sysfs_rel
+    for _ in range(6):
+        path = os.path.dirname(path)
+        if path in ("/sys", "/", ""):
+            break
+        for supply in glob.glob(os.path.join(path, "power_supply", "*")):
+            capacity = read(os.path.join(supply, "capacity"))
+            level = read(os.path.join(supply, "capacity_level"))
+            status = read(os.path.join(supply, "status"))
+            return {
+                "node": os.path.basename(supply),
+                "percent": int(capacity) if capacity.isdigit() else None,
+                "level": level or None,
+                "status": status or None,
+            }
+    return None
+
+
+def led_for(name_hint):
+    """An Xbox pad's guide-button LED shows up as its own LED class device.
+
+    It is root owned with no uaccess tag, so being able to *see* it is not the
+    same as being able to *set* it — the panel needs both facts to decide
+    between a slider and an offer to install the udev rule.
+    """
+    for led in sorted(glob.glob(os.path.join(LEDS, "*:white:status"))):
+        base = os.path.basename(led)
+        if name_hint and not base.startswith(name_hint.split(".")[0]):
+            continue
+        brightness = os.path.join(led, "brightness")
+        return {
+            "path": led,
+            "name": base,
+            "max": read(os.path.join(led, "max_brightness")) or None,
+            "brightness": read(brightness) or None,
+            "writable": os.access(brightness, os.W_OK),
+            "hasMode": os.path.exists(os.path.join(led, "mode")),
+        }
+    return None
+
+
+def dongles():
+    """Xbox Wireless Adapters, and whether we can put one into pairing mode.
+
+    Pairing is a sysfs attribute the driver exposes; writing it needs root
+    unless a udev rule has granted the seat access, so the panel offers the
+    rule rather than a button that fails.
+    """
+    found = []
+    for iface in glob.glob(os.path.join(USB_DEVICES, "*:1.0")):
+        driver_link = os.path.join(iface, "driver")
+        if not os.path.islink(driver_link):
+            continue
+        if os.path.basename(os.path.realpath(driver_link)) != "xone-dongle":
+            continue
+        pairing = os.path.join(iface, "pairing")
+        clients = read(os.path.join(iface, "active_clients"))
+        m = re.search(r"Active clients:\s*(\d+)", clients)
+        found.append({
+            "path": iface,
+            "pairing": read(pairing) == "1",
+            "writable": os.access(pairing, os.W_OK),
+            "activeClients": int(m.group(1)) if m else None,
+        })
+    return found
+
+
+# Vendors whose devices are plausibly gamepads, used only for the fallback
+# below. Matching on the word "controller" alone is not enough: an MSI
+# motherboard exposes "MS MSI Gaming Controller" (vendor 1462) for its RGB
+# lighting, which is emphatically not something to offer a rumble test for.
+PAD_VENDORS = {
+    "045e",  # Microsoft
+    "054c",  # Sony
+    "057e",  # Nintendo
+    "28de",  # Valve
+    "2dc8",  # 8BitDo
+    "0e6f",  # PDP
+    "24c6",  # PowerA
+    "046d",  # Logitech
+}
+
+
+def is_gamepad(dev):
+    # joydev gives every real gamepad a js* handler, and nothing else gets one.
+    if any(h.startswith("js") for h in dev.get("handlers", [])):
+        return True
+    # Fallback for a system without joydev loaded: the name has to look like a
+    # pad *and* come from a vendor that makes them.
+    name = dev.get("name", "").lower()
+    looks_like_pad = any(w in name for w in ("gamepad", "controller", "xbox", "x-box", "joystick"))
+    return looks_like_pad and dev.get("vendor", "") in PAD_VENDORS
+
+
+def connection_for(dev, driver):
+    if driver == "xone_wired":
+        return "usb"
+    if driver == "hid_xpadneo":
+        return "bluetooth"
+    if driver == "xone_gip_gamepad":
+        return "dongle"
+    bus = dev.get("bus", "")
+    return {"0003": "usb", "0005": "bluetooth"}.get(bus, "unknown")
+
+
+def main():
+    pads = []
+    for dev in parse_proc_devices():
+        if not is_gamepad(dev):
+            continue
+        sysfs = dev.get("sysfs", "")
+        driver = driver_for(sysfs)
+        caps = dict(DEFAULT_CAPS)
+        caps.update(DRIVER_CAPS.get(driver, {}))
+
+        battery = battery_for(sysfs)
+        # A wired pad has no battery at all, whatever the driver could report.
+        if battery is None:
+            caps["batteryKind"] = "none"
+        elif battery.get("percent") is not None:
+            caps["batteryKind"] = "percent"
+
+        led = led_for(battery["node"] if battery else "") if caps["led"] else None
+        if caps["led"] and not led:
+            caps["led"] = False
+
+        event = next((h for h in dev.get("handlers", []) if h.startswith("event")), "")
+        node = "/dev/input/" + event if event else ""
+
+        pads.append({
+            "name": dev.get("name", "Controller"),
+            "driver": driver or "unknown",
+            "connection": connection_for(dev, driver),
+            "vendor": dev.get("vendor", ""),
+            "product": dev.get("product", ""),
+            "uniq": dev.get("uniq", ""),
+            "node": node,
+            # evdev nodes are uaccess-tagged for the seat, so rumble needs no
+            # root — but say so explicitly rather than assuming.
+            "nodeWritable": bool(node) and os.access(node, os.W_OK),
+            "sysfs": sysfs,
+            "battery": battery,
+            "led": led,
+            "caps": caps,
+        })
+
+    out = {
+        "pads": pads,
+        "dongles": dongles(),
+        "drivers": sorted({
+            m for m in (read("/proc/modules").split("\n") and [
+                line.split()[0] for line in read("/proc/modules").split("\n") if line
+            ]) if m in ("xone_gip_gamepad", "xone_wired", "xone_dongle",
+                        "hid_xpadneo", "xpad", "hid_playstation")
+        }),
+    }
+    json.dump(out, sys.stdout)
+    sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()

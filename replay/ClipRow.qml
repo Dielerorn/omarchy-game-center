@@ -53,6 +53,7 @@ Rectangle {
       clip: true
 
       Image {
+        id: thumbImage
         anchors.fill: parent
         source: root.thumb !== "" ? "file://" + root.thumb : ""
         fillMode: Image.PreserveAspectCrop
@@ -61,11 +62,13 @@ Rectangle {
         visible: status === Image.Ready
       }
 
-      // Shown while the thumbnail is being made, and permanently when ffmpeg
-      // is missing — a clip with no picture is still a clip.
+      // Shown while the thumbnail is being made, when ffmpeg is missing, and
+      // when the cached still has been pruned out from under us — the cache is
+      // trimmed to 200 files, so a long-lived panel can outlive its own
+      // thumbnails. A clip with no picture is still a clip.
       Text {
         anchors.centerIn: parent
-        visible: root.thumb === ""
+        visible: root.thumb === "" || thumbImage.status !== Image.Ready
         text: "󰕧"
         color: root.foreground
         opacity: 0.35

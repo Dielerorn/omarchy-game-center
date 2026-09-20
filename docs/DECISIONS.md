@@ -104,3 +104,35 @@ a second restart while the first is still coming up and the new instance exits
 with "An instance of this configuration is already running", after which the
 original is killed anyway — leaving no shell and no bar. Wait for
 `omarchy-shell shell ping` to answer `ok` before restarting again.
+
+## sysfs spells driver names with hyphens, /proc/modules with underscores
+
+The same driver is `xone-gip-gamepad` in `/sys/.../driver` and
+`xone_gip_gamepad` in `/proc/modules`. `gc-pad-probe` normalises to
+underscores before looking up capabilities.
+
+This is not cosmetic. Keyed on the wrong spelling, every pad falls through to
+the default capability set, and the panel then reports a perfectly good Xbox
+controller as having no rumble, no battery and no light — which is exactly what
+it did until a real controller was connected. Capability tables that fail
+*closed* hide their own bugs, so the test suite now asserts that a connected pad
+carries a full capability set.
+
+## What an Xbox pad actually reports (measured, dongle connection)
+
+```
+driver      xone_gip_gamepad        (sysfs: xone-gip-gamepad)
+connection  dongle
+battery     level "Full", status "Discharging", percent null
+led         /sys/class/leds/gip0.0:white:status
+            max_brightness 50, brightness 20, mode present, writable false
+caps        rumble true, triggerRumble false, batteryKind level,
+            charging false, led true, deadzone false
+```
+
+`percent` is null and `status` never says Charging, exactly as the driver's
+property list implies. Five segments is the honest rendering.
+
+Rumble over evdev works with no root and no udev rule: `sizeof(ff_effect)` is
+48 bytes on x86_64, `EVIOCSFF` is `0x40304580`, and a 70/40 effect for 600ms
+returns in 0.68s.

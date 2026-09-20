@@ -21,13 +21,26 @@ echo
 
 # ---------------------------------------------------------------- static
 
-echo "shell scripts"
+echo "helpers"
+# bin/ holds both bash and python; check each with its own parser rather than
+# running bash -n over a python file and calling the syntax error a failure.
 for f in "$PLUGIN_DIR"/bin/*; do
   name="$(basename "$f")"
-  if bash -n "$f" 2>/dev/null; then ok "$name parses"; else bad "$name parses"; fi
+  [[ -x $f ]] || bad "$name is executable"
+  case "$(head -1 "$f")" in
+    *python*)
+      if python3 -c "import ast,sys;ast.parse(open(sys.argv[1]).read())" "$f" 2>/dev/null
+      then ok "$name parses (python)"; else bad "$name parses (python)"; fi
+      ;;
+    *)
+      if bash -n "$f" 2>/dev/null; then ok "$name parses (bash)"; else bad "$name parses (bash)"; fi
+      ;;
+  esac
 done
+
 if command -v shellcheck >/dev/null; then
   for f in "$PLUGIN_DIR"/bin/*; do
+    case "$(head -1 "$f")" in *python*) continue ;; esac
     name="$(basename "$f")"
     if shellcheck -S warning "$f" >/dev/null 2>&1; then ok "$name shellcheck"
     else bad "$name shellcheck ($(shellcheck -S warning -f gcc "$f" 2>/dev/null | head -1))"; fi
@@ -136,6 +149,50 @@ else
     bad "power profiles are enumerated"
   fi
 fi
+
+echo
+echo "controllers"
+probe="$("$PLUGIN_DIR/bin/gc-pad-probe" 2>/dev/null)"
+if jq -e '.pads | type == "array"' <<<"$probe" >/dev/null 2>&1; then
+  ok "pad probe returns an inventory ($(jq '.pads | length' <<<"$probe") connected)"
+else
+  bad "pad probe returns an inventory"
+fi
+
+# Every pad must carry a full capability set, because the UI binds each control
+# to one of these and an undefined capability renders as a control that lies.
+if jq -e '[.pads[].caps | has("rumble") and has("batteryKind") and has("led")] | all' \
+     <<<"$probe" >/dev/null 2>&1; then
+  ok "every pad carries a full capability set"
+else
+  bad "every pad carries a full capability set"
+fi
+
+# The MSI motherboard exposes "MS MSI Gaming Controller" for its RGB lighting.
+# It is not a gamepad and must never be offered a rumble test.
+if jq -e '[.pads[].name | test("MSI"; "i")] | any' <<<"$probe" >/dev/null 2>&1; then
+  bad "non-gamepad devices are excluded (MSI lighting matched)"
+else
+  ok "non-gamepad devices are excluded"
+fi
+
+if jq -e '.dongles | type == "array"' <<<"$probe" >/dev/null 2>&1; then
+  ok "dongles enumerated ($(jq '.dongles | length' <<<"$probe") found)"
+else
+  bad "dongles enumerated"
+fi
+
+# ff_effect is 48 bytes on x86_64 and the ioctl number is derived from it, so a
+# wrong struct means rumble silently does nothing on some machines.
+size="$(python3 -c "
+import ctypes, sys
+sys.argv = ['x']
+src = open('$PLUGIN_DIR/bin/gc-rumble').read().split('def clamp_percent')[0]
+exec(src)
+print(ctypes.sizeof(FFEffect))
+" 2>/dev/null)"
+if [[ "$size" == "48" ]]; then ok "ff_effect struct is 48 bytes"
+else bad "ff_effect struct is 48 bytes (got '$size')"; fi
 
 echo
 printf 'pass %d · fail %d · skip %d\n' "$PASS" "$FAIL" "$SKIP"

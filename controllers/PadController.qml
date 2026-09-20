@@ -16,6 +16,10 @@ QtObject {
   property var pads: []
   property var dongles: []
   property var drivers: []
+  // Controllers that are plugged in but have been handed to another program.
+  // Separate from `pads` on purpose: nothing here has an input node, so none
+  // of the per-pad controls can work on it.
+  property var claimed: []
   property string error: ""
   property bool probing: false
 
@@ -23,6 +27,7 @@ QtObject {
   property bool watching: false
 
   readonly property int padCount: pads.length
+  readonly property int claimedCount: claimed.length
   readonly property var dongle: dongles.length > 0 ? dongles[0] : null
 
   // Any pad reporting Low is worth a dot on the bar chip.
@@ -191,6 +196,7 @@ QtObject {
         try {
           var d = JSON.parse(String(text))
           root.pads = d.pads || []
+          root.claimed = d.claimed || []
           root.dongles = d.dongles || []
           root.drivers = d.drivers || []
           root.error = ""

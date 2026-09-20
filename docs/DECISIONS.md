@@ -289,3 +289,76 @@ service now probes in `Component.onCompleted` alongside session recovery.
 The general shape of the bug: state that the *bar chip* depends on cannot be
 refreshed only by opening the popout, because the chip is visible when the
 popout is not.
+
+## What a Steam Controller actually reports (measured, wired)
+
+```
+driver      hid_steam               (sysfs: hid-steam)
+connection  usb                     (28de:1102, kernel 7.2.3)
+battery     null                    — no power_supply node registered at all
+led         null                    — no led_classdev in the driver
+caps        rumble false, triggerRumble false, batteryKind none,
+            charging false, led false, deadzone false
+```
+
+Read off the evdev node's own capability bits rather than by pressing buttons,
+which settles the codes without depending on anyone's care with an instruction:
+
+```
+KEYS  0x121 0x122 0x130 0x131 0x133 0x134 0x136 0x137 0x138 0x139
+      0x13a 0x13b 0x13c 0x13d 0x13e 0x220 0x221 0x222 0x223 0x224 0x225
+AXES  0x00 0x01 0x03 0x04 0x10 0x11  ±32767
+      0x14 0x15                      0–255
+FF    none
+```
+
+Three things this confirms, each of which the code had only predicted:
+
+- **`ABS_HAT0X/Y` really is ±32767**, not a −1..1 hat. Reading the range with
+  `EVIOCGABS` instead of branching on the axis name is what makes the left
+  trackpad work, and a d-pad assumption here would draw one permanently jammed.
+- **There are no `EV_FF` bits at all**, so `"rumble": false` is a fact about
+  the device rather than caution. A rumble button would fail on every press.
+- **The grip paddles arrive as `BTN_GRIPL`/`BTN_GRIPR` (0x224/0x225)** on
+  7.2.3, and the older `BTN_GEAR_*` codes are absent. Both spellings stay in
+  the map because the kernel version decides which one appears.
+
+The device presents three interfaces and `hid-steam` binds all of them; only
+one reports absolute axes. That check is what keeps the emulated mouse and
+keyboard out of the inventory, and it held: the probe lists exactly one pad.
+
+## A Steam Controller is taken by whatever opens its hidraw node — usually not Steam
+
+`hid-steam` unregisters the gamepad's evdev node as soon as a program opens the
+controller over hidraw, so the pad vanishes from the inventory while remaining
+plugged in. This was known. What was wrong was the assumed culprit: the plan
+was an empty state reading "Steam is using this controller".
+
+Measured on a machine running a game:
+
+```
+lsusb                28de:1102 present
+hid_steam            loaded, bound to all four HID interfaces
+0003:28DE:1102.000F  input34 + hidraw14      (emulated mouse)
+0003:28DE:1102.0010  input35 + hidraw15      (emulated keyboard)
+0003:28DE:1102.0011  no input, no hidraw     ← the gamepad, unregistered
+0003:28DE:1102.0012  hidraw16, no input
+holder of 14/15/16   pid 109162  winedevice.exe
+steam client         not running
+```
+
+The holder was **Wine's HID service inside a Proton prefix** — Battle.net
+launched through `umu-run` — with Steam closed. "Steam is using this
+controller" would have been a confident lie on the first machine that ran it.
+
+So the probe reports a `claimed` list and the panel names the process. Finding
+it means walking `/proc/*/fd` for the device's hidraw nodes, which costs ~70ms
+for ~14k descriptors — affordable once per probe, and the only way to say
+something true instead of something plausible.
+
+The detection needs all three of: a HID interface on a claimable driver with no
+input node; no pad in the inventory under that USB device; and a process
+actually holding one of its hidraw nodes. The third is load bearing rather than
+decorative — a wireless dongle with no controller switched on plausibly
+presents the first two, and announcing that as "in use" would be the same class
+of lie. When no holder can be identified the panel says nothing extra.

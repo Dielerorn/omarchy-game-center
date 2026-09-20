@@ -176,6 +176,67 @@ else
   ok "non-gamepad devices are excluded"
 fi
 
+# A controller that is plugged in but claimed by another program must be
+# reported as claimed, not simply absent. hid-steam unregisters the evdev node
+# whenever something opens the pad's hidraw node, so "no controllers connected"
+# is what the panel would otherwise say about a pad sitting on the desk.
+if jq -e '.claimed | type == "array"' <<<"$probe" >/dev/null 2>&1; then
+  ok "claimed controllers enumerated ($(jq '.claimed | length' <<<"$probe") found)"
+else
+  bad "claimed controllers enumerated"
+fi
+
+# Every claimed entry must name the program holding it. The entry is only
+# emitted when a holder was actually found, so a null here means the detection
+# fired on something it could not explain — which is how a wireless adapter
+# with no controller switched on would wrongly show up as "in use".
+if jq -e '[.claimed[] | .holder.pid | type == "number"] | all' <<<"$probe" >/dev/null 2>&1; then
+  ok "every claimed controller names the process holding it"
+else
+  bad "every claimed controller names the process holding it"
+fi
+
+# The two lists are disjoint by construction: anything in `claimed` has no
+# input node, so a device in both would mean a pad is being offered controls
+# and simultaneously reported as unreachable.
+if jq -e '. as $d | [$d.claimed[] | .sysfs as $c
+          | [$d.pads[] | select(.sysfs | startswith($c))] | length]
+          | add // 0 | . == 0' <<<"$probe" >/dev/null 2>&1; then
+  ok "claimed and connected controllers do not overlap"
+else
+  bad "claimed and connected controllers do not overlap"
+fi
+
+# The guard that actually matters, because its failure mode is loud and wrong:
+# a controller with a working gamepad node must never also be reported as
+# claimed. Exercised against this machine's real sysfs tree by handing
+# claimed_devices() a pad that sits under the same USB device it found.
+python3 - "$PLUGIN_DIR/bin/gc-pad-probe" <<'CLAIMEOF' >/dev/null 2>&1
+import importlib.machinery, importlib.util, sys
+
+# Importing the probe must not leave a bin/__pycache__ behind: the helper loop
+# above walks bin/* and would try to parse the directory as a shell script.
+sys.dont_write_bytecode = True
+
+loader = importlib.machinery.SourceFileLoader("probe", sys.argv[1])
+spec = importlib.util.spec_from_loader("probe", loader)
+probe = importlib.util.module_from_spec(spec)
+loader.exec_module(probe)          # __name__ != "__main__", so nothing runs
+
+claimed = probe.claimed_devices([])
+if not claimed:
+    sys.exit(2)                    # nothing claimed here; nothing to check
+
+# A pad node under the same USB device is what a working controller looks like.
+working = [{"sysfs": c["sysfs"] + "/fake:1.0/input/input99"} for c in claimed]
+sys.exit(0 if probe.claimed_devices(working) == [] else 1)
+CLAIMEOF
+case $? in
+  0) ok "a controller with a working node is never reported as claimed" ;;
+  2) skip "claimed-vs-working guard" "no claimed controller on this machine" ;;
+  *) bad "a controller with a working node is never reported as claimed" ;;
+esac
+
 if jq -e '.dongles | type == "array"' <<<"$probe" >/dev/null 2>&1; then
   ok "dongles enumerated ($(jq '.dongles | length' <<<"$probe") found)"
 else

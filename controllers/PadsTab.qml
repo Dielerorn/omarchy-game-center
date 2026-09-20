@@ -27,15 +27,42 @@ Column {
   readonly property int count: ready ? pads.padCount : 0
   readonly property var dongle: ready ? pads.dongle : null
 
+  // Plugged in, but handed to a program that opened it directly. These have no
+  // input node, so they get a sentence in the empty state rather than a row
+  // with controls that could not work.
+  readonly property var claimed: ready ? (pads.claimed || []) : []
+  readonly property var claimedFirst: claimed.length > 0 ? claimed[0] : null
+
   // --------------------------------------------------------- empty state
 
   GcEmptyState {
     width: parent.width
     visible: root.count === 0
     glyph: "󰊴"
-    title: "No controllers connected"
+    title: {
+      if (root.claimedFirst === null) return "No controllers connected"
+      if (root.claimed.length > 1) return root.claimed.length + " controllers are in use"
+      return root.claimedFirst.name + " is in use"
+    }
     detail: {
       if (!root.ready) return ""
+
+      // A controller that is plugged in but claimed is the most specific thing
+      // we can say, so it wins over the driver list. Naming the program is the
+      // point: "Steam is using this controller" is the guess everyone makes,
+      // and it is wrong whenever a Proton game holds it with Steam closed.
+      if (root.claimedFirst !== null) {
+        var c = root.claimedFirst
+        var who = (c.holder && c.holder.name) ? c.holder.name : "another program"
+        var subject = c.connection === "dongle"
+              ? "Its wireless adapter is open in "
+              : "It is open in "
+        if (root.claimed.length > 1) subject = "They are open in "
+        return subject + who + ", which takes the controller over completely — "
+             + "it reports there instead of to the system. Close that program "
+             + "and the controller comes back."
+      }
+
       if (root.dongle)
         return "An Xbox Wireless Adapter is plugged in. Turn on a controller, "
              + "or use Pair below to connect a new one."

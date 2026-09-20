@@ -1,18 +1,25 @@
 # Steam Controller (2015)
 
 Game Center ships support for the original Steam Controller — capabilities,
-button map and silhouette — **written from the kernel driver, not from a
-device**. Nobody has run it against real hardware yet.
+button map and silhouette. It was written from the kernel driver, and the
+protocol half of it has since been checked against a device.
 
 This document is what that support is based on, what to check first, and the
 handful of places where this controller breaks assumptions that a two-stick pad
 lets you get away with. Read `ADDING-A-CONTROLLER.md` for the general
 procedure; this is the device-specific half.
 
-> **Status: unverified.** Everything below cites `drivers/hid/hid-steam.c` or
-> Valve's own documentation. Where a claim came from product photos or
-> reasoning rather than source, it says so. If the hardware disagrees with this
-> file, **the hardware is right** — fix the code and fix this file.
+> **Status: capabilities, buttons and axes verified** on a wired 28de:1102,
+> kernel 7.2.3, by reading the evdev node's own capability bits. Every code and
+> range in the tables below came back exactly as the driver predicted, so the
+> tables are now descriptions rather than predictions.
+>
+> **Still unverified: the silhouette and the axis directions.** Those need
+> someone to look at the pad and push the sticks, which reading capability bits
+> cannot do. The art has never been compared to a real controller.
+>
+> If the hardware disagrees with this file, **the hardware is right** — fix the
+> code and fix this file.
 
 ---
 
@@ -165,18 +172,39 @@ This is also why the left pad's art uses `touchKey: "lpadtouch"`: the finger dot
 only appears while a finger is actually down, instead of sitting at the centre
 pretending to be a reading.
 
-### 3. Steam takes the controller away
+### 3. Any hidraw client takes the controller away — not just Steam
 
-When the Steam client (or anything else) opens the device through hidraw, the
-driver **unregisters the evdev node entirely** and Steam presents its own
-virtual X360 pad instead. The controller will vanish from the Pads tab while
-Steam is running and come back when it exits.
+When something opens the device through hidraw, the driver **unregisters the
+evdev node entirely** so that program can drive the pad itself. The controller
+vanishes from the Pads tab and comes back when the program exits.
 
-Game Center handles the node disappearing — the pad drops out of the list and
-the live view stops — but it currently says nothing about *why*. **That is worth
-improving**: if `hid_steam` is loaded and a Valve USB device is present but no
-gamepad node exists, the empty state could say "Steam is using this controller"
-rather than "no controllers connected". A good first contribution.
+Steam is the obvious culprit and the one this section used to name. It is not
+the only one, and on a machine that is actually gaming it is often not the one:
+
+> Observed on a wired pad, kernel 7.2.3: the holder was **`winedevice.exe`**,
+> Wine's HID service inside a Proton prefix, with the Steam client not running
+> at all. Battle.net had been launched through `umu-run`, and Wine enumerated
+> the controller and opened its hidraw nodes so the Windows game could see it.
+
+This is why the Pads tab **names the program** rather than asserting Steam. The
+probe reports a `claimed` list alongside `pads`, and the empty state reads
+"Steam Controller is in use — it is open in winedevice.exe". Hardcoding "Steam
+is using this controller" would have been wrong on the first machine that ran
+it.
+
+The detection requires three things to agree, because the expensive failure is
+a confident wrong answer rather than silence:
+
+| Signal | Why |
+|---|---|
+| A HID interface on a claimable driver with **no input node** | Necessary, but weak on its own — `hid-steam` leaves one behind even while the pad works |
+| **No pad in the live inventory** under that USB device | What actually stops a working controller being called claimed |
+| A process **actually holding** one of its hidraw nodes | Load bearing: without it, a dongle with no controller switched on looks identical |
+
+The third is what keeps the message honest, and it is why the holder is found
+by walking `/proc/*/fd` (about 70ms for ~14k descriptors) rather than guessed
+at. If the holder belongs to another user we cannot read its `comm`, so the
+panel falls back to "another program" rather than inventing a name.
 
 A related note: opening the gamepad node disables "lizard mode", the
 controller's built-in mouse/keyboard emulation. So while the live input view is
@@ -221,22 +249,36 @@ canvas and that every key the art lights is one `gc-pads` actually emits.
 
 ## Checklist for the first run on hardware
 
-Plug it in wired first, then try the dongle.
+Plug it in wired first, then try the dongle. Ticked boxes were confirmed on a
+wired 28de:1102 on kernel 7.2.3; unticked ones still need someone holding the
+pad.
 
-- [ ] `bin/gc-pad-probe` lists exactly **one** pad, named "Steam Controller"
-      (wired) or "Wireless Steam Controller" (dongle) — not three
-- [ ] `driver` reads `hid_steam`, `connection` reads `usb` wired / `dongle` wireless
-- [ ] Wired: no battery shown. Dongle: a percentage, no charging icon
-- [ ] No rumble button, no LED section — both correct for this pad
+- [x] `bin/gc-pad-probe` lists exactly **one** pad, named "Steam Controller"
+      (wired) — not three. The mouse and keyboard interfaces are correctly
+      filtered out by the "reports absolute axes" check
+- [x] `driver` reads `hid_steam`, `connection` reads `usb` wired
+- [ ] Dongle: `connection` reads `dongle`, a battery percentage, no charging icon
+- [x] Wired: no battery shown (`hid-steam` registers no `power_supply` for it)
+- [x] No rumble button — the evdev node carries **no `EV_FF` bits at all**,
+      confirming the driver gates force feedback on Deck/Ibex
+- [x] No LED section
+- [x] Every button and axis in the tables above is present on the node, with the
+      ranges claimed: `ABS_HAT0X/Y` at ±32767 (the left trackpad, **not** a
+      d-pad) and the triggers at 0–255
+- [x] Grip paddles report as `BTN_GRIPL`/`BTN_GRIPR` (0x224/0x225) on 7.2.3, as
+      expected for ≥6.17. The `BTN_GEAR_*` codes are absent, which is why both
+      spellings stay in the map
+- [x] A program opening the pad over hidraw makes it vanish, and the Pads tab
+      names that program instead of saying "no controllers connected"
+- [x] Unplug (or lose the node) mid-stream: `gc-pads` emits
+      `{"t":"error","code":"gone"}` and exits rather than hanging
 - [ ] Live input: every button lights the right part. Check ABXY especially,
       and confirm **X is the left button and Y is the top one**
 - [ ] Both trackpads: the dot follows your finger and disappears when you lift
       off, rather than sitting at centre
 - [ ] The stick reads centre while the left pad is touched (expected — see above)
 - [ ] Triggers fill smoothly 0→full, and the full-pull click lights separately
-- [ ] Grip paddles light (check `uname -r`: ≥6.17 uses the `BTN_GRIP*` codes)
-- [ ] Start Steam: the pad disappears from the tab. Quit Steam: it comes back
-- [ ] Unplug mid-stream: the pad drops out rather than the panel freezing
+- [ ] The silhouette matches the pad held next to it
 
 If any of these fail, `docs/ADDING-A-CONTROLLER.md` §2 shows how to dump raw
 codes from the device — and the driver source is the tiebreaker.
@@ -250,11 +292,20 @@ Carried over from the research honestly, so nobody takes them as settled:
 - The exact kernel version that adds gyro/accel for the 2015 pad. It is absent
   through 7.2 and present on master, so a motion panel should detect the
   "Steam Controller Motion Sensors" node rather than assume a version.
+  (7.2.3 confirmed absent: no motion node appears.)
 - The sign convention of the Y axes against real hardware. The driver negates
   raw Y; nobody has watched a stick move. **If up and down are inverted in the
   live view, this is the first place to look** — `normalise()` in `bin/gc-pads`
   negates `ly`/`ry`, and the trackpad axes may need the same treatment or may
-  already be correct.
-- How granular the wireless battery percentage actually is.
+  already be correct. Reading capability bits cannot settle this; it needs a
+  thumb on the stick.
+- Whether the silhouette resembles the hardware at all.
+- How granular the wireless battery percentage actually is, and whether the
+  dongle's `connection` really reports as `dongle` — neither has been seen.
+- Whether a dongle with **no controller switched on** presents HID interfaces
+  without input nodes, the way a claimed wired pad does. If it does, the
+  `claimed` detection's third signal (a process holding hidraw) is the only
+  thing stopping it being announced as "in use", and that signal is load
+  bearing rather than belt-and-braces. Worth checking with a dongle in hand.
 - Behaviour over Bluetooth — `hid-steam` has no BLE id for the 2015 pad, so it
   is probably not handled by this driver at all.

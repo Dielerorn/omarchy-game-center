@@ -192,6 +192,45 @@ probe reports a `claimed` list alongside `pads`, and the empty state reads
 is using this controller" would have been wrong on the first machine that ran
 it.
 
+#### The pad does not always vanish — sometimes it is replaced
+
+When the holder is **Steam** rather than a bare Wine prefix, the Pads tab does
+not empty. Steam Input publishes a **uinput virtual Xbox 360 pad** in the real
+controller's place, under Valve's own vendor id:
+
+```
+pads     Microsoft X-Box 360 pad 0   28de:11ff
+         /devices/virtual/input/input51   driver: unknown
+claimed  Steam Controller            28de:1102   holder: steam
+```
+
+Both facts are in the same probe output and the panel used to connect neither,
+so a Steam Controller appeared in the list calling itself an Xbox 360 pad —
+"wired · unknown" underneath it, both halves of which are untrue of a device
+with no cable and no driver.
+
+A pad on `/devices/virtual/` is now flagged `virtual`, its connection reads
+`virtual` rather than a bus it merely inherited, and when a claimed device
+shares its vendor id the pad carries an `emulates` block naming it. The row
+then reads "emulated by steam" and explains itself in place.
+
+Two consequences worth knowing:
+
+- **It gets no silhouette, deliberately.** Its driver is `unknown`, so
+  `familyFor()` returns nothing and it falls back to the chip grid. Drawing an
+  Xbox outline would be a claim about what is in your hands, and what is in
+  your hands is a Steam Controller.
+- **It really does rumble**, even though the 2015 pad does not. The emulated
+  node carries `FF_RUMBLE`; Steam Input translates it to the trackpad
+  actuators. A pad with no row in `DRIVER_CAPS` now has its rumble read from
+  the node's own FF bits rather than defaulted to false.
+
+The buttons it reports are Steam Input's translation, not the hardware: a
+digital hat on `ABS_HAT0X/Y` at −1..1 where the real pad has a trackpad at
+±32767, no trigger clicks, no pad-touch bits and no grip paddles. **Do not
+measure the Steam Controller through this device** — close Steam first, or you
+will be documenting Steam's mapping and calling it the driver's.
+
 The detection requires three things to agree, because the expensive failure is
 a confident wrong answer rather than silence:
 

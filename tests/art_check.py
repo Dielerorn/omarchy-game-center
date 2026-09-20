@@ -72,6 +72,20 @@ for name, art in families().items():
             if "key" in item:
                 check(item["key"] in buttons,
                       f"{label}: key '{item['key']}' is not emitted by gc-pads")
+
+            # A trackpad clicked by quadrant lights these instead of `key`.
+            # They need the same check, or a typo here is a direction that can
+            # never light up — which is exactly how a d-pad ended up bound to
+            # `padup` alone, with the other three quadrants dead.
+            for quadrant in item.get("quadrants", []):
+                check(quadrant.get("key") in buttons,
+                      f"{label}: quadrant key '{quadrant.get('key')}' "
+                      "is not emitted by gc-pads")
+                check(quadrant.get("dx") in (-1, 0, 1)
+                      and quadrant.get("dy") in (-1, 0, 1)
+                      and (quadrant.get("dx"), quadrant.get("dy")) != (0, 0),
+                      f"{label}: quadrant '{quadrant.get('key')}' needs a "
+                      "direction, as dx/dy in -1..1 and not both zero")
             for axis_field in ("axisX", "axisY", "axis"):
                 if axis_field in item:
                     check(item[axis_field] in axes,

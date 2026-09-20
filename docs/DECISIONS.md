@@ -73,3 +73,34 @@ that no longer matches the source.
 
 `readonly property var gc: …` fails with `Illegal property name`. The service
 handle on the panel is called `gameCenter`.
+
+## Replay buffer memory is mostly fixed cost, not payload
+
+Measured RSS of the armed buffer against its nominal payload
+(`kbps x seconds / 8`):
+
+| capture | payload | RSS |
+|---|---|---|
+| 2560x1440, 26.7 Mbps, 30 s | 100 MB | 285 MB |
+| 2560x1440, 53.3 Mbps, 30 s | 200 MB | 379 MB |
+| 3440x1440, 35.8 Mbps, 30 s | 134 MB | 433 MB |
+
+The encoder's working set is a large cost that tracks capture resolution, not
+buffer length, so a multiplier badly under-counts short buffers — 15 s at
+1080p would be quoted at ~50 MB while actually costing several hundred. Both
+the preflight and the panel's estimate use **payload + 400 MB**.
+
+## The buffer defaults to 60 fps on a 144 Hz monitor
+
+Matching the monitor's refresh rate doubles the bitrate, and therefore the
+memory held for the entire session, plus the encoder load while you are trying
+to play. Clips get watched back, not competed in. 60 is the default and
+anything up to 240 can be asked for explicitly.
+
+## Restarting the shell twice in quick succession leaves it dead
+
+`omarchy-restart-shell` kills the running instance and starts a new one. Issue
+a second restart while the first is still coming up and the new instance exits
+with "An instance of this configuration is already running", after which the
+original is killed anyway — leaving no shell and no bar. Wait for
+`omarchy-shell shell ping` to answer `ok` before restarting again.

@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "session"
+import "replay"
 
 // Owner of everything that has to stay correct while nobody is looking.
 //
@@ -37,9 +38,15 @@ QtObject {
 
   readonly property bool sessionActive: session.engaged
 
-  // Replay lands in M2, pads in M4. Declared now so the panel can bind to
-  // them and the IPC surface stays stable.
-  property bool replayArmed: false
+  // M2. Owns the replay buffer process and its socket.
+  property ReplayController replay: ReplayController {
+    pluginDir: root.pluginDir
+    runtimeDir: root.runtimeDir
+  }
+
+  readonly property bool replayArmed: replay.armed
+
+  // Pads land in M4.
   property int padCount: 0
 
   function statusJson() {
@@ -86,6 +93,13 @@ QtObject {
     function sessionOn(): string { root.session.engage(); return "engaging" }
     function sessionOff(): string { root.session.release(); return "releasing" }
     function sessionToggle(): string { root.session.toggle(); return "toggling" }
+
+    // The one worth binding to a key:
+    //   bind = SUPER ALT, R, exec, omarchy-shell -q gamecenter saveClip
+    function saveClip(): string { root.replay.save(root.replay.seconds); return "saving" }
+    function replayArm(): string { root.replay.arm(); return "arming" }
+    function replayDisarm(): string { root.replay.disarm(); return "disarming" }
+    function replayToggle(): string { root.replay.toggle(); return "toggling" }
   }
 
   Component.onCompleted: {
@@ -94,5 +108,6 @@ QtObject {
     // Recovery first: a session orphaned by a shell restart is put back before
     // any UI exists to show a stale claim.
     session.start()
+    replay.refresh()
   }
 }

@@ -2,6 +2,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "session"
+import "replay"
 
 // Bar chip plus popout. The panel owns view state only — which tab is
 // showing, where the keyboard cursor is — while everything that outlives the
@@ -27,11 +28,17 @@ Panel {
   readonly property bool serviceReady: gameCenter !== null
   readonly property var session: gameCenter ? gameCenter.session : null
   readonly property bool sessionOn: session ? session.engaged : false
+  readonly property var replay: gameCenter ? gameCenter.replay : null
+  readonly property bool replayArmed: replay ? replay.armed : false
 
   // The probe costs four subprocesses, so it runs when the panel opens rather
   // than on a timer. While the panel is closed the marker watcher is the only
   // thing keeping state fresh, which is enough for the chip.
-  onOpenedChanged: if (opened && session) session.refresh()
+  onOpenedChanged: {
+    if (!opened) return
+    if (session) session.refresh()
+    if (replay) replay.refresh()
+  }
 
   readonly property int panelWidth: setting("panelWidth", 380)
 
@@ -56,12 +63,19 @@ Panel {
       session.wantNightlight = setting("nightLightOff", true)
       session.wantPower = setting("performanceProfile", true)
     }
+    if (replay) {
+      replay.seconds = setting("replaySeconds", 30)
+      replay.storage = setting("replayStorage", "ram")
+      replay.quality = setting("replayQuality", "balanced")
+      replay.audio = setting("replayAudio", "desktop")
+    }
     loading = false
   }
 
   // The service outlives the panel, so its controller may already exist when
   // this widget mounts — or arrive a moment later on a cold start.
   onSessionChanged: if (session) loadSettings()
+  onReplayChanged: if (replay) loadSettings()
 
   Connections {
     target: root.session
@@ -70,6 +84,15 @@ Panel {
     function onWantDndChanged() { root.persist() }
     function onWantNightlightChanged() { root.persist() }
     function onWantPowerChanged() { root.persist() }
+  }
+
+  Connections {
+    target: root.replay
+    ignoreUnknownSignals: true
+    function onSecondsChanged() { root.persist() }
+    function onStorageChanged() { root.persist() }
+    function onQualityChanged() { root.persist() }
+    function onAudioChanged() { root.persist() }
   }
 
   function tabIndex(value) {
@@ -108,6 +131,12 @@ Panel {
       entry.nightLightOff = root.session.wantNightlight
       entry.performanceProfile = root.session.wantPower
     }
+    if (root.replay) {
+      entry.replaySeconds = root.replay.seconds
+      entry.replayStorage = root.replay.storage
+      entry.replayQuality = root.replay.quality
+      entry.replayAudio = root.replay.audio
+    }
     if (JSON.stringify(entry) === JSON.stringify(root.settings)) return
     root.settings = entry
     root.bar.shell.updateEntryInline(root.moduleName, entry)
@@ -135,13 +164,18 @@ Panel {
     // nf-md-microsoft_xbox_controller (U+F02B4): reads as "gamepad" at bar
     // size, where a more detailed glyph turns to mush.
     text: "󰊴"
-    active: root.opened || (root.gameCenter ? root.gameCenter.sessionActive : false)
+    active: root.opened || root.sessionOn || root.replayArmed
 
+    // One glyph, one state, in priority order. A bar widget that stacks
+    // badges is the fastest route to being uninstalled, so the detail lives
+    // in the tooltip.
     tooltipText: {
       if (!root.serviceReady) return "Game Center (starting)"
-      if (root.gameCenter.replayArmed) return "Game Center — replay armed"
-      if (root.gameCenter.sessionActive) return "Game Center — session on"
-      return "Game Center"
+      var parts = []
+      if (root.replayArmed) parts.push("replay armed (" + root.replay.seconds + "s)")
+      if (root.sessionOn) parts.push("session on")
+      if (root.replay && root.replay.stockRecording) parts.push("screen recording")
+      return parts.length ? "Game Center — " + parts.join(" · ") : "Game Center"
     }
 
     onPressed: function(b) { root.toggle() }
@@ -227,16 +261,24 @@ Panel {
           fontFamily: root.fontFamily
         }
 
-        // M2 and M4 replace these.
+        ReplayTab {
+          width: parent.width
+          visible: root.tab === "clips"
+          replay: root.replay
+          foreground: root.panelForeground
+          fontFamily: root.fontFamily
+        }
+
+        // M4 replaces this.
         Text {
           width: parent.width
-          visible: root.tab !== "session"
+          visible: root.tab === "pads"
           wrapMode: Text.WordWrap
           color: root.panelForeground
           opacity: 0.6
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
-          text: root.tab === "pads" ? "Controllers land in M4." : "Instant replay lands in M2."
+          text: "Controllers land in M4."
         }
       }
     }

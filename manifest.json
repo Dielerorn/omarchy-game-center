@@ -27,7 +27,11 @@
       "keepAwake": true,
       "silenceNotifications": true,
       "nightLightOff": true,
-      "performanceProfile": true
+      "performanceProfile": true,
+      "replaySeconds": 30,
+      "replayStorage": "ram",
+      "replayQuality": "balanced",
+      "replayAudio": "desktop"
     },
     "schema": [
       {
@@ -79,7 +83,54 @@
         "label": "Session sets the performance power profile",
         "defaultValue": true,
         "description": "Hidden on machines that have no performance profile, which is most desktops with a placeholder platform driver."
+      },
+      {
+        "key": "replaySeconds",
+        "type": "integer",
+        "label": "Replay buffer length",
+        "min": 5,
+        "max": 300,
+        "step": 5,
+        "defaultValue": 30,
+        "description": "Seconds kept in the buffer. Memory use scales with this and with your monitor: 30s of 1440p60 is roughly 300MB including the encoder's own working set."
+      },
+      {
+        "key": "replayStorage",
+        "type": "enum",
+        "label": "Replay buffer held in",
+        "options": [
+          "ram",
+          "disk"
+        ],
+        "defaultValue": "ram",
+        "description": "RAM is instant and costs memory for the whole session. Disk trades that for writes to your drive."
+      },
+      {
+        "key": "replayQuality",
+        "type": "enum",
+        "label": "Replay quality",
+        "options": [
+          "low",
+          "balanced",
+          "high",
+          "ultra"
+        ],
+        "defaultValue": "balanced",
+        "description": "Bitrate is scaled from this by your monitor's pixels and frame rate, so the same tier costs more on an ultrawide."
+      },
+      {
+        "key": "replayAudio",
+        "type": "enum",
+        "label": "Replay audio",
+        "options": [
+          "desktop",
+          "both",
+          "none"
+        ],
+        "defaultValue": "desktop",
+        "description": "'both' adds your microphone to the desktop audio."
       }
     ]
-  }
+  },
+  "keepLoaded": true
 }

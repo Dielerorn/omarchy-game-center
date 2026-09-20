@@ -136,3 +136,37 @@ property list implies. Five segments is the honest rendering.
 Rumble over evdev works with no root and no udev rule: `sizeof(ff_effect)` is
 48 bytes on x86_64, `EVIOCSFF` is `0x40304580`, and a 70/40 effect for 600ms
 returns in 0.68s.
+
+## The Xbox button codes are measured, not read off the header names
+
+`input-event-codes.h` aliases `BTN_X` to `BTN_NORTH` (0x133) and `BTN_Y` to
+`BTN_WEST` (0x134). On an Xbox pad X is the **west** button and Y is the
+**north** one, so reading those aliases as positions transposes X and Y. The
+driver emits by letter:
+
+```
+A 0x130    B 0x131    X 0x133    Y 0x134
+```
+
+Measured by pressing each button on an Xbox One S over the dongle and recording
+raw codes. The first attempt shipped the transposition and the live view lit
+the wrong chip; `tests/run.sh` now asserts the table. If a pad ever looks
+transposed, re-measure rather than trusting this note.
+
+## Live input reads evdev directly instead of using SDL
+
+SDL's gamepad database normalises pads nobody has heard of, which is real
+value. It also means `python-pysdl3`, which is not installed by default — and
+on this machine `python-evdev` was installed but built for an older Python than
+the running 3.14, so it would not import either. A controller tab whose first
+act is to ask for a package install is a tab nobody uses.
+
+Reading evdev directly is about sixty lines of stdlib, exact for anything
+following the kernel's gamepad convention, and needs no root: gamepad event
+nodes are uaccess-tagged for the logged-in seat. The NDJSON protocol carries a
+`backend` field in its hello line, so an SDL backend can be added later without
+the panel changing.
+
+The streamer's lifetime is the subscription: the panel starts it when the live
+view opens and kills it when the tab closes. No idle process, no stdin
+protocol, and a crash costs nothing but the picture until the next open.

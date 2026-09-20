@@ -39,6 +39,53 @@ QtObject {
 
   signal rumbleFinished(string message)
 
+  // ------------------------------------------------------- live input
+  //
+  // The streamer's lifetime *is* the subscription: it runs while the pads tab
+  // is open and is killed when it closes. No idle process, no stdin protocol,
+  // and a crash costs nothing but the picture until the next open.
+  property string streamNode: ""
+  property var padState: null
+  property string streamBackend: ""
+  property string streamError: ""
+
+  function startStream(node) {
+    if (node === root.streamNode && streamProcess.running) return
+    stopStream()
+    if (!node) return
+    root.streamNode = node
+    streamProcess.command = [root.pluginDir + "/bin/gc-pads", node, "--hz", "60"]
+    streamProcess.running = true
+  }
+
+  function stopStream() {
+    root.streamNode = ""
+    root.padState = null
+    root.streamBackend = ""
+    root.streamError = ""
+    if (streamProcess.running) streamProcess.running = false
+  }
+
+  property Process streamProcess: Process {
+    stdout: SplitParser {
+      onRead: function(line) {
+        var t = String(line).trim()
+        if (t === "") return
+        var m
+        try { m = JSON.parse(t) } catch (e) { return }
+        // Refuse a protocol we do not know rather than guessing at its shape.
+        if (m.v !== 1) return
+        if (m.t === "state") root.padState = m
+        else if (m.t === "hello") { root.streamBackend = String(m.backend || ""); root.streamError = "" }
+        else if (m.t === "error") {
+          root.streamError = m.code === "permission"
+            ? "no permission to read this controller"
+            : "controller disconnected"
+        }
+      }
+    }
+  }
+
   function refresh() {
     if (probeProcess.running) return
     root.probing = true
@@ -99,13 +146,18 @@ QtObject {
     ledProcess.running = true
   }
 
-  // Both help buttons open the same README section rather than running
-  // anything: installing a udev rule is a root action and should be the user's
-  // deliberate choice, made with the rule in front of them.
-  function showLedHelp() { openDocs() }
-  function showPairHelp() { openDocs() }
-  function openDocs() {
-    docsProcess.command = ["xdg-open", root.pluginDir + "/docs/UDEV.md"]
+  // Both help buttons open the same terminal flow: it prints the rule, says
+  // what each line buys, and offers to install it.
+  //
+  // A terminal rather than anything in-panel, because installing the rule
+  // needs root — and a bar widget that quietly raises a polkit prompt to write
+  // a file in /etc is worse behaviour than one that shows you the four lines
+  // and asks. The terminal is also where a password prompt belongs.
+  function showLedHelp() { openUdevHelp() }
+  function showPairHelp() { openUdevHelp() }
+  function openUdevHelp() {
+    docsProcess.command = ["omarchy-launch-floating-terminal-with-presentation",
+                           root.pluginDir + "/bin/gc-udev"]
     docsProcess.running = true
   }
 

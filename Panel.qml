@@ -39,8 +39,11 @@ Panel {
   // thing keeping state fresh, which is enough for the chip.
   onOpenedChanged: {
     if (!opened) {
-      // Nothing keeps probing once the popout is gone.
-      if (padStore) padStore.watching = false
+      // Nothing keeps probing — or streaming — once the popout is gone.
+      if (padStore) {
+        padStore.watching = false
+        padStore.stopStream()
+      }
       return
     }
     if (session) session.refresh()
@@ -56,7 +59,11 @@ Panel {
 
   // Battery level changes with no filesystem event behind it, so the pads tab
   // polls slowly — but only while it is the tab being looked at.
-  onTabChanged: if (padStore) padStore.watching = (tab === "pads" && opened)
+  onTabChanged: {
+    if (!padStore) return
+    padStore.watching = (tab === "pads" && opened)
+    if (tab !== "pads") padStore.stopStream()
+  }
 
   readonly property int panelWidth: setting("panelWidth", 380)
 

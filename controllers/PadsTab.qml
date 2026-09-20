@@ -132,6 +132,32 @@ Column {
         }
       }
 
+      // Live input is only streamed for the pad whose view is open: one
+      // controller's worth of events is plenty, and nobody watches two.
+      Toggle {
+        width: parent.width
+        label: "Show live input"
+        description: root.ready && root.pads.streamError !== ""
+          ? root.pads.streamError
+          : "every button and stick, as you press them"
+        checked: root.ready && root.pads.streamNode === modelData.node
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: {
+          if (!root.ready) return
+          if (root.pads.streamNode === modelData.node) root.pads.stopStream()
+          else root.pads.startStream(modelData.node)
+        }
+      }
+
+      PadInputView {
+        width: parent.width
+        visible: root.ready && root.pads.streamNode === modelData.node
+        state: root.ready ? root.pads.padState : null
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+      }
+
       GcDegradedRow {
         width: parent.width
         visible: modelData.caps.led && modelData.led && !modelData.led.writable

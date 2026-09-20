@@ -4,8 +4,9 @@ The pre-game ritual in one Omarchy panel: session toggles, controllers and
 instant replay, instead of six separate bar widgets that don't know about each
 other.
 
-> **Status: v0.1.0 — scaffold.** The panel, the service and the plugin contract
-> work end to end. The three tabs are placeholders; see the roadmap below.
+> **Status: v0.2.0.** All three tabs work. Built and verified against a real
+> Xbox One S on the `xone` driver, an Xbox Wireless Adapter, and
+> gpu-screen-recorder 6.1.
 
 ## Install
 
@@ -37,20 +38,32 @@ omarchy-shell -q dielerorn.gamecenter saveClip
 
 ## Roadmap
 
+All five milestones are in:
+
 | | |
 |---|---|
-| **M0** | Scaffold, service, panel, IPC — **done** |
-| M1 | Session toggles and the ownership model |
-| M2 | Replay arm / disarm / save |
-| M3 | Clip list and thumbnails |
-| M4 | Controller inventory, battery, rumble |
-| M5 | Live input view, guide LED, dongle pairing |
+| **M0** | Scaffold, service, panel, IPC |
+| **M1** | Session toggles and the ownership model |
+| **M2** | Replay arm / disarm / save |
+| **M3** | Clip list and thumbnails |
+| **M4** | Controller inventory, battery, rumble |
+| **M5** | Live input view, guide LED, dongle pairing |
+
+Next, roughly in order of usefulness: a game library with per-game profiles,
+a drawn controller silhouette to replace the chip grid, and routing recording
+and replay through one recorder instance rather than two.
 
 ## Requirements
 
-Omarchy with the Quickshell shell. `gpu-screen-recorder` (already on Omarchy)
-for replay; `python-pysdl3` (`extra`) only for the live input view — everything
-else degrades to a message with the command that fixes it, never a broken panel.
+Omarchy with the Quickshell shell, and `gpu-screen-recorder` for replay — which
+Omarchy already ships. Nothing else: the controller tab reads evdev and sysfs
+directly, so live input, battery and rumble need no Python packages and no
+root. `ffmpeg` is used for clip thumbnails if present and degrades to a glyph if
+not.
+
+Two Xbox controls — the guide-button light and pairing from the panel — are
+root-owned and stay hidden unless you install the optional udev rule; the panel
+offers to walk you through it. See `docs/UDEV.md`.
 
 ## Development
 

@@ -58,13 +58,39 @@ BUTTONS = {
     0x136: "lb", 0x137: "rb",
     0x13a: "view", 0x13b: "menu", 0x13c: "guide",
     0x13d: "ls", 0x13e: "rs",
+
+    # Beyond the Xbox set. A pad only emits the ones it has, so listing them
+    # together is harmless and means a new family usually needs no change here.
+    #
+    # BTN_TL2/BTN_TR2: the digital click at the end of a Steam Controller's
+    # analog trigger pull. Independent of the axis, not derived from it.
+    0x138: "lt2", 0x139: "rt2",
+
+    # Trackpad touch, so a finger dot can be drawn only while a finger is
+    # actually down — a pad reports its centre when untouched.
+    0x121: "lpadtouch", 0x122: "rpadtouch",
+
+    # Rear grip paddles. The codes changed: BTN_GEAR_DOWN/UP up to kernel
+    # 6.16, BTN_GRIPL/R from 6.17. Both map to the same names so art does not
+    # have to care which kernel it is running on.
+    0x150: "lgrip", 0x151: "rgrip",
+    0x224: "lgrip", 0x225: "rgrip",
+
+    # A left trackpad clicked by quadrant (Steam Controller). There is no code
+    # for "left pad clicked" on its own — the quadrant is all the driver gives.
+    0x220: "padup", 0x221: "paddown", 0x222: "padleft", 0x223: "padright",
 }
 
 AXES = {
     0x00: "lx", 0x01: "ly",
-    0x03: "rx", 0x04: "ry",
-    0x02: "lt", 0x05: "rt",
-    0x10: "hx", 0x11: "hy",
+    0x03: "rx", 0x04: "ry",        # right stick on an Xbox pad, right trackpad on a Steam Controller
+    0x02: "lt", 0x05: "rt",        # ABS_Z / ABS_RZ
+    0x10: "hx", 0x11: "hy",        # d-pad hat on most pads, left trackpad on a Steam Controller
+
+    # ABS_HAT2Y / ABS_HAT2X: the Steam Controller's analog triggers, 0..255.
+    # Note the pairing is Y = left, X = right, which is the opposite way round
+    # from what the names suggest.
+    0x15: "lt", 0x14: "rt",
 }
 
 # struct input_event on 64-bit: __kernel_ulong_t sec, usec; __u16 type, code;
@@ -95,7 +121,18 @@ def emit(obj):
 
 
 def normalise(name, raw, info):
-    """Sticks to -1..1, triggers and the d-pad to 0..1 and -1..1."""
+    """Sticks and pads to -1..1, triggers to 0..1.
+
+    The axis's own reported range decides how to read it, not its name. ABS_HAT0
+    is a three-position d-pad hat (-1..1) on most pads, but on a Steam
+    Controller it is the left trackpad with a range of +/-32767 — treating that
+    as a hat clamps every touch to full deflection and draws a permanently
+    jammed d-pad. Asking the device for its range (EVIOCGABS) gets both right
+    with no per-family special case.
+
+    Triggers likewise: 0..1023 on xone, 0..255 on hid-steam, and the ranges are
+    read rather than assumed.
+    """
     if not info or info["max"] == info["min"]:
         return 0.0
     lo, hi = info["min"], info["max"]
@@ -135,10 +172,16 @@ def main():
         emit({"t": "error", "code": "gone", "detail": str(exc)})
         return 0
 
+    # EVIOCGABS succeeds with an all-zero range for an axis the pad does not
+    # have, so a zero range means "absent" rather than "pinned at zero". This
+    # matters because two codes can share a name: an Xbox pad's triggers are
+    # ABS_Z/ABS_RZ and a Steam Controller's are ABS_HAT2Y/X, both called
+    # lt/rt. Without this check the absent one overwrites the real one and the
+    # triggers read 0.0 forever.
     info = {}
     for code, name in AXES.items():
         got = abs_info(fd, code)
-        if got:
+        if got and got["max"] != got["min"]:
             info[name] = got
 
     emit({"t": "hello", "backend": "evdev", "node": node,
@@ -182,10 +225,7 @@ def main():
                 elif etype == EV_ABS:
                     name = AXES.get(code)
                     if name:
-                        if name in ("hx", "hy"):
-                            axes[name] = float(max(-1, min(1, value)))
-                        else:
-                            axes[name] = normalise(name, value, info.get(name))
+                        axes[name] = normalise(name, value, info.get(name))
                         dirty = True
 
         now = time.monotonic()

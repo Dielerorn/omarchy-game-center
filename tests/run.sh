@@ -257,21 +257,16 @@ else
 fi
 rm -rf "$tmp"
 
-# The drawn pad must agree with the button map: Y north, A south, X west,
-# B east. A picture that disagrees with the input is worse than no picture.
-if python3 - "$PLUGIN_DIR/controllers/PadArt.js" <<'PYEOF' >/dev/null 2>&1
-import re, sys
-src = open(sys.argv[1]).read()
-block = re.search(r"faceButtons = \[(.*?)\]", src, re.S).group(1)
-pos = {m[0]: (float(m[1]), float(m[2]))
-       for m in re.findall(r'key:\s*"(\w+)",\s*label:\s*"\w+",\s*x:\s*([\d.]+),\s*y:\s*([\d.]+)', block)}
-ok = (pos["y"][1] < pos["a"][1]          # Y above A
-      and pos["x"][0] < pos["b"][0]      # X left of B
-      and pos["x"][0] < pos["y"][0] < pos["b"][0])
-sys.exit(0 if ok else 1)
-PYEOF
-then ok "drawn pad has Y north, A south, X west, B east"
-else bad "drawn pad face buttons are in the wrong positions"; fi
+# Structural checks on every controller family in PadArt.js: parts inside the
+# canvas, keys the streamer actually emits, and face buttons that agree with
+# the button map. See tests/art_check.py — it runs standalone too, which is
+# what you want while adding a family.
+art_out="$(python3 "$PLUGIN_DIR/tests/art_check.py" 2>&1)"
+if [[ $? -eq 0 ]]; then
+  ok "controller art is structurally sound"
+else
+  while IFS= read -r line; do [[ -n $line ]] && bad "art: $line"; done <<<"$art_out"
+fi
 
 echo
 printf 'pass %d · fail %d · skip %d\n' "$PASS" "$FAIL" "$SKIP"

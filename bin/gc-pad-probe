@@ -57,6 +57,32 @@ DRIVER_CAPS = {
         "led": False,
         "deadzone": False,
     },
+    # Steam Controller (2015) on the in-kernel hid-steam driver.
+    #
+    # Read from drivers/hid/hid-steam.c rather than assumed, and every "False"
+    # here is a real limitation rather than caution:
+    #
+    #   rumble  — force feedback is gated on STEAM_QUIRK_DECK|IBEX, so the 2015
+    #             pad gets no EV_FF at all and EVIOCSFF will fail. Its haptics
+    #             are trackpad LRAs driven over hidraw, which the driver does
+    #             not expose to userspace. A rumble button here would be a lie.
+    #   battery — registered only for the wireless dongle, and it is a real
+    #             CAPACITY percentage, not a bucket. Wired pads register no
+    #             power_supply at all (the probe then forces "none").
+    #   charging— the driver lists STATUS only for the 2026 Ibex. The 2015 pad
+    #             runs on two AAs and never reports charging.
+    #   led     — no led_classdev anywhere in the driver.
+    #
+    # NOT verified against hardware — see docs/STEAM-CONTROLLER.md for what to
+    # confirm when a pad is actually in hand.
+    "hid_steam": {
+        "rumble": False,
+        "triggerRumble": False,
+        "batteryKind": "percent",
+        "charging": False,
+        "led": False,
+        "deadzone": False,
+    },
     "hid_playstation": {
         "rumble": True,
         "triggerRumble": True,
@@ -111,6 +137,9 @@ def parse_proc_devices():
                     current["uniq"] = rest.replace("Uniq=", "")
                 elif tag == "H":
                     current["handlers"] = rest.replace("Handlers=", "").split()
+                elif tag == "B":
+                    key, _, value = rest.partition("=")
+                    current.setdefault("bits", {})[key.strip().lower()] = value.strip()
     except OSError:
         return []
     if current:
@@ -211,10 +240,10 @@ def dongles():
 # motherboard exposes "MS MSI Gaming Controller" (vendor 1462) for its RGB
 # lighting, which is emphatically not something to offer a rumble test for.
 PAD_VENDORS = {
+    "28de",  # Valve (Steam Controller, Steam Deck)
     "045e",  # Microsoft
     "054c",  # Sony
     "057e",  # Nintendo
-    "28de",  # Valve
     "2dc8",  # 8BitDo
     "0e6f",  # PDP
     "24c6",  # PowerA
@@ -222,18 +251,38 @@ PAD_VENDORS = {
 }
 
 
+def has_axes(dev):
+    """Does this node report absolute axes at all?
+
+    A Steam Controller presents three interfaces — emulated mouse, emulated
+    keyboard, and the real pad — and hid-steam binds all three, so the driver
+    name alone does not identify the gamepad. The mouse and keyboard nodes have
+    no EV_ABS, which is the cheap way to tell them apart. Without this check a
+    plugin offers a rumble test for someone's emulated keyboard.
+    """
+    bits = dev.get("bits", {}).get("abs", "")
+    return any(c not in "0 " for c in bits)
+
+
 def is_gamepad(dev):
     # joydev gives every real gamepad a js* handler, and nothing else gets one.
     if any(h.startswith("js") for h in dev.get("handlers", [])):
         return True
-    # Fallback for a system without joydev loaded: the name has to look like a
-    # pad *and* come from a vendor that makes them.
+    # Fallback for a system without joydev loaded: it has to report axes, look
+    # like a pad by name, and come from a vendor that makes them.
+    if not has_axes(dev):
+        return False
     name = dev.get("name", "").lower()
     looks_like_pad = any(w in name for w in ("gamepad", "controller", "xbox", "x-box", "joystick"))
     return looks_like_pad and dev.get("vendor", "") in PAD_VENDORS
 
 
 def connection_for(dev, driver):
+    if driver == "hid_steam":
+        # One dongle serves up to four controllers, all sharing product 0x1142;
+        # the wired pad is 0x1102. Telling them apart by product id is the only
+        # way, since both arrive on the same driver.
+        return "dongle" if dev.get("product", "") == "1142" else "usb"
     if driver == "xone_wired":
         return "usb"
     if driver == "hid_xpadneo":
@@ -292,7 +341,7 @@ def main():
             m for m in (read("/proc/modules").split("\n") and [
                 line.split()[0] for line in read("/proc/modules").split("\n") if line
             ]) if m in ("xone_gip_gamepad", "xone_wired", "xone_dongle",
-                        "hid_xpadneo", "xpad", "hid_playstation")
+                        "hid_xpadneo", "xpad", "hid_playstation", "hid_steam")
         }),
     }
     json.dump(out, sys.stdout)

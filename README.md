@@ -65,6 +65,17 @@ Two Xbox controls — the guide-button light and pairing from the panel — are
 root-owned and stay hidden unless you install the optional udev rule; the panel
 offers to walk you through it. See `docs/UDEV.md`.
 
+## Adding another controller
+
+`docs/ADDING-A-CONTROLLER.md` is the procedure: identify the driver, measure
+the buttons, declare the capabilities, draw the silhouette. Art is data in
+`controllers/PadArt.js` and the renderer draws whatever parts a family
+declares, so a pad with trackpads instead of a right stick needs no code.
+
+Support for the **Steam Controller (2015)** is present but has never been run
+against hardware — `docs/STEAM-CONTROLLER.md` says exactly what was taken from
+the kernel driver, what to check first, and where it is most likely wrong.
+
 ## Development
 
 The repository *is* the plugin directory — `omarchy plugin validate` rejects

@@ -1,50 +1,86 @@
 #!/usr/bin/env python3
-"""Render the pad geometry to a PNG so the silhouette can be checked without
-restarting the shell. Same coordinates that go into PadArt.js."""
-import subprocess, sys
+"""Render a controller family from PadArt.js to a PNG.
 
-W, H = 300, 200
+    tools/pad-preview.py xbox out.png
 
-BODY = (
-    "M 70 50 "
-    "C 100 38, 200 38, 230 50 "
-    "C 262 58, 281 76, 279 104 "
-    "C 277 142, 262 179, 236 186 "
-    "C 214 192, 202 178, 196 158 "
-    "C 188 146, 170 152, 150 152 "
-    "C 130 152, 112 146, 104 158 "
-    "C 98 178, 86 192, 64 186 "
-    "C 38 179, 23 142, 21 104 "
-    "C 19 76, 38 58, 70 50 Z"
-)
+Placing parts by eye in QML means a shell restart per attempt and a screenshot
+to judge it. This reads the same PadArt.js the plugin does and draws it through
+a plain SVG, so geometry can be iterated in a second.
 
-STICKS = [(84, 88, 20, 9), (166, 120, 19, 8)]
-DPAD = (116, 128, 12, 9)
-FACE = [("Y", 228, 64), ("X", 208, 84), ("B", 248, 84), ("A", 228, 104)]
-SMALL = [("view", 130, 78, 6.5), ("menu", 170, 78, 6.5), ("guide", 150, 58, 11)]
-BUMPERS = [(52, 34, 54, 13), (194, 34, 54, 13)]
-TRIGGERS = [(60, 16, 40, 11), (200, 16, 40, 11)]
+It is also how you tell the two failure modes apart: if the PNG looks right and
+the panel does not, the bug is in the rendering, not the coordinates.
+"""
+import json, re, subprocess, sys, pathlib
 
-parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W*3}" height="{H*3}" viewBox="0 0 {W} {H}">',
-         f'<rect width="{W}" height="{H}" fill="#1c1f26"/>']
-parts.append(f'<path d="{BODY}" fill="#2a2f39" stroke="#c9c2b0" stroke-width="1.6"/>')
-for x, y, w, h in TRIGGERS:
-    parts.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{h/2}" fill="#3a4150"/>')
-for x, y, w, h in BUMPERS:
-    parts.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{h/2}" fill="#49515f"/>')
-for x, y, r, travel in STICKS:
-    parts.append(f'<circle cx="{x}" cy="{y}" r="{r+travel}" fill="#232832" stroke="#3a4150" stroke-width="1"/>')
-    parts.append(f'<circle cx="{x}" cy="{y}" r="{r}" fill="#6b7383"/>')
-x, y, arm, th = DPAD
-parts.append(f'<rect x="{x-arm}" y="{y-th/2}" width="{arm*2}" height="{th}" rx="2" fill="#49515f"/>')
-parts.append(f'<rect x="{x-th/2}" y="{y-arm}" width="{th}" height="{arm*2}" rx="2" fill="#49515f"/>')
-for label, x, y in FACE:
-    parts.append(f'<circle cx="{x}" cy="{y}" r="12" fill="#49515f"/>')
-    parts.append(f'<text x="{x}" y="{y+4}" font-size="11" font-family="monospace" fill="#e8e2d4" text-anchor="middle">{label}</text>')
-for key, x, y, r in SMALL:
-    parts.append(f'<circle cx="{x}" cy="{y}" r="{r}" fill="#49515f"/>')
-parts.append("</svg>")
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+ART = ROOT / "controllers" / "PadArt.js"
 
-open(sys.argv[1] + ".svg", "w").write("\n".join(parts))
-subprocess.run(["magick", sys.argv[1] + ".svg", sys.argv[1]], check=True)
-print("wrote", sys.argv[1])
+
+def load(family):
+    """Pull one family out of PadArt.js without a JS engine.
+
+    The file is JS, not JSON, so this strips comments and quotes the keys. It
+    is a preview tool, not a parser — if it chokes on something you added, fix
+    the tool rather than contorting the art.
+    """
+    src = ART.read_text()
+    src = re.sub(r"//[^\n]*", "", src)
+    start = src.index("var families")
+    body = src[src.index("{", start):]
+    depth, end = 0, None
+    for i, ch in enumerate(body):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    text = body[:end]
+    text = re.sub(r'"\s*\+\s*\n?\s*"', "", text)          # joined path strings
+    text = re.sub(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", r'\1"\2":', text)
+    text = re.sub(r",(\s*[}\]])", r"\1", text)
+    families = json.loads(text)
+    if family not in families:
+        sys.exit("no such family: %s (have: %s)" % (family, ", ".join(families)))
+    return families[family]
+
+
+def render(art, out):
+    W, H = 300, 200
+    e = art.get("elements", {})
+    p = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W*3}" height="{H*3}" viewBox="0 0 {W} {H}">',
+         f'<rect width="{W}" height="{H}" fill="#1c1f26"/>',
+         f'<path d="{art["body"]}" fill="#2a2f39" stroke="#c9c2b0" stroke-width="1.6"/>']
+
+    for t in e.get("triggers", []):
+        p.append(f'<rect x="{t["x"]}" y="{t["y"]}" width="{t["w"]}" height="{t["h"]}" rx="{t["h"]/2}" fill="#3a4150"/>')
+    for b in e.get("bumpers", []) + e.get("grips", []):
+        p.append(f'<rect x="{b["x"]}" y="{b["y"]}" width="{b["w"]}" height="{b["h"]}" rx="{min(b["w"],b["h"])/2}" fill="#49515f"/>')
+    for tp in e.get("trackpads", []):
+        rx = "8" if tp.get("round") is False else str(tp["r"])
+        p.append(f'<rect x="{tp["x"]-tp["r"]}" y="{tp["y"]-tp["r"]}" width="{tp["r"]*2}" height="{tp["r"]*2}" rx="{rx}" fill="#232832" stroke="#3a4150"/>')
+    for s in e.get("sticks", []):
+        p.append(f'<circle cx="{s["x"]}" cy="{s["y"]}" r="{s["r"]+s["travel"]}" fill="#232832" stroke="#3a4150"/>')
+        p.append(f'<circle cx="{s["x"]}" cy="{s["y"]}" r="{s["r"]}" fill="#6b7383"/>')
+    if "dpad" in e:
+        d = e["dpad"]
+        p.append(f'<rect x="{d["x"]-d["arm"]}" y="{d["y"]-d["thickness"]/2}" width="{d["arm"]*2}" height="{d["thickness"]}" rx="2" fill="#49515f"/>')
+        p.append(f'<rect x="{d["x"]-d["thickness"]/2}" y="{d["y"]-d["arm"]}" width="{d["thickness"]}" height="{d["arm"]*2}" rx="2" fill="#49515f"/>')
+    for f in e.get("faceButtons", []):
+        p.append(f'<circle cx="{f["x"]}" cy="{f["y"]}" r="{f["r"]}" fill="#49515f"/>')
+        p.append(f'<text x="{f["x"]}" y="{f["y"]+4}" font-size="11" font-family="monospace" fill="#e8e2d4" text-anchor="middle">{f["label"]}</text>')
+    for s in e.get("smallButtons", []):
+        p.append(f'<circle cx="{s["x"]}" cy="{s["y"]}" r="{s["r"]}" fill="#49515f"/>')
+    p.append("</svg>")
+
+    svg = out + ".svg"
+    pathlib.Path(svg).write_text("\n".join(p))
+    subprocess.run(["magick", svg, out], check=True)
+    print("wrote", out)
+
+
+if __name__ == "__main__":
+    family = sys.argv[1] if len(sys.argv) > 1 else "xbox"
+    out = sys.argv[2] if len(sys.argv) > 2 else "/tmp/pad-%s.png" % family
+    render(load(family), out)

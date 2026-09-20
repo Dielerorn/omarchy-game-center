@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "PadArt.js" as Art
 
 // Live input: lit chips for the buttons, a box with a dot per stick, a bar per
 // trigger.
@@ -18,15 +19,18 @@ Column {
   property color foreground: Color.popups.text
   property string fontFamily: Style.font.family
 
-  // The art is an Xbox pad, so it is only shown for Xbox drivers.
-  readonly property bool hasArt:
-    driver === "xone_gip_gamepad" || driver === "hid_xpadneo" || driver === "xpad"
+  // PadArt decides: a driver with matching art gets the drawn pad, anything
+  // else gets the chip grid. Adding a family to PadArt.js is all it takes for
+  // a new controller to be drawn here.
+  readonly property string family: Art.familyFor(driver)
+  readonly property bool hasArt: family !== ""
 
   spacing: Style.spacing.sm
 
   PadShape {
     width: parent.width
     visible: root.hasArt
+    family: root.family
     state: root.state
     foreground: root.foreground
     accent: Color.accent

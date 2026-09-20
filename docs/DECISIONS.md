@@ -265,3 +265,27 @@ wrong direction — the coordinates were fine. `tools/pad-preview.py` renders th
 same data to a PNG through a plain SVG, which is the fastest way to tell a
 geometry problem from a rendering one: if the PNG looks right and the panel
 does not, the bug is in the QML.
+
+## FileView watches a file, not a directory
+
+Hotplug detection started as `FileView { path: "/dev/input"; watchChanges: true }`
+and never fired once. Pointed at a directory, FileView silently does nothing —
+`printErrors: false` hid whatever it made of that — so a controller switched on
+while the panel was closed stayed invisible until the panel was next opened.
+
+It now uses `inotifywait -m` over `/dev/input` and `/sys/class/power_supply`,
+which is what the shell's own plugin registry uses for the same job. Events are
+debounced by 400ms, because plugging in one pad creates several nodes in quick
+succession. If inotify-tools is missing the process exits, and a 60s poll takes
+over rather than the plugin silently never noticing a controller again.
+
+## A service has to populate its own state at startup
+
+The pad inventory was only refreshed when the panel opened, so
+`omarchy-shell gamecenter status` reported zero controllers while one was
+plugged in, and the bar chip could not have shown a low-battery dot. The
+service now probes in `Component.onCompleted` alongside session recovery.
+
+The general shape of the bug: state that the *bar chip* depends on cannot be
+refreshed only by opening the popout, because the chip is visible when the
+popout is not.

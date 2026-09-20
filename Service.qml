@@ -143,5 +143,9 @@ QtObject {
     // any UI exists to show a stale claim.
     session.start()
     replay.refresh()
+    // The inventory has to be right before anyone opens the panel: the bar
+    // chip reports low battery from it, and a controller switched on before
+    // the shell started would otherwise stay invisible until first open.
+    pads.refresh()
   }
 }

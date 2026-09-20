@@ -5,11 +5,9 @@ import Quickshell.Io
 // Controller inventory: which pads are here, what they are, and what each one
 // can actually do.
 //
-// The probe is a one-shot subprocess rather than a resident daemon, fired when
-// /dev/input changes and when the panel opens. A pad being plugged in is a rare
-// event; a background process polling for it is not worth the wakeups, and the
-// directory watcher has in-tree precedent (the idle service watches its
-// indicator directory the same way).
+// The probe is a one-shot subprocess, fired when a device node appears or
+// disappears and when the panel opens. A pad being switched on is a rare event,
+// so it is watched for rather than polled.
 QtObject {
   id: root
 
@@ -219,29 +217,47 @@ QtObject {
 
   property Process pairProcess: Process { onExited: root.refresh() }
 
-  // Hotplug without a resident process. A pad appearing or disappearing
-  // creates or removes a node here, and the battery node shows up a moment
-  // later, so both are watched.
-  property FileView inputWatch: FileView {
-    path: "/dev/input"
-    watchChanges: true
-    printErrors: false
-    onFileChanged: root.refresh()
+  // Hotplug.
+  //
+  // This started as a FileView on /dev/input, which never fired: FileView
+  // watches a *file*, and pointing it at a directory silently does nothing, so
+  // a controller switched on while the panel was closed stayed invisible until
+  // the panel was opened. inotifywait is what the shell's own plugin registry
+  // uses for the same job, it is genuinely event-driven rather than polled, and
+  // it costs one sleeping process.
+  property Process hotplug: Process {
+    running: true
+    command: ["inotifywait", "-m", "-q", "-e", "create,delete,move",
+              "--format", "%f", "/dev/input", "/sys/class/power_supply"]
+    stdout: SplitParser {
+      // Every device node change lands here, so coalesce: plugging in one pad
+      // creates several nodes in quick succession and each would otherwise be
+      // its own probe.
+      onRead: function(line) { debounce.restart() }
+    }
+    onExited: function(code) {
+      // inotify-tools missing, or the watch died. Fall back to polling rather
+      // than silently never noticing a controller again.
+      if (root.hotplugFailed) return
+      root.hotplugFailed = true
+      root.refresh()
+    }
   }
 
-  property FileView batteryWatch: FileView {
-    path: "/sys/class/power_supply"
-    watchChanges: true
-    printErrors: false
-    onFileChanged: root.refresh()
+  property bool hotplugFailed: false
+
+  property Timer debounce: Timer {
+    interval: 400
+    onTriggered: root.refresh()
   }
 
-  // Battery level changes without any filesystem event, so while the tab is
-  // open there is a slow poll behind the watchers. Off when nobody is looking.
+  // Battery level changes with no filesystem event behind it, so there is a
+  // slow poll while the tab is open — and a slower one always, as the fallback
+  // if the hotplug watcher is not available.
   property Timer poll: Timer {
-    interval: 30000
+    interval: root.watching ? 30000 : 60000
     repeat: true
-    running: root.watching
+    running: root.watching || root.hotplugFailed
     onTriggered: root.refresh()
   }
 }

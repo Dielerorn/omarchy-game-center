@@ -247,3 +247,21 @@ not lose it.
 
 A metric that cannot be read is omitted from the JSON rather than sent as zero,
 so the overlay leaves the row out instead of confidently displaying 0%.
+
+## PathSvg coordinates are literal — the Shape must be scaled as a whole
+
+Every element in `PadShape.qml` is placed by multiplying design coordinates by
+`k = width / 300`. `PathSvg` is the exception: its `d` string is taken
+literally, so a Shape filling the item drew the body at 1:1 while the buttons
+sat `k` times further out. At panel width that put the face buttons outside the
+silhouette entirely.
+
+The Shape is therefore laid out at design size with
+`transform: Scale { xScale: k; yScale: k }`, and its stroke width is divided by
+`k` so the outline does not thicken as the panel widens.
+
+This presented as "the geometry is wrong", which sent the first fix in the
+wrong direction — the coordinates were fine. `tools/pad-preview.py` renders the
+same data to a PNG through a plain SVG, which is the fastest way to tell a
+geometry problem from a rendering one: if the PNG looks right and the panel
+does not, the bug is in the QML.

@@ -126,6 +126,14 @@ QtObject {
     function overlayToggle(): string { root.overlay.toggle(); return "toggling" }
     function overlayOn(): string { root.overlay.enabled = true; return "on" }
     function overlayOff(): string { root.overlay.enabled = false; return "off" }
+
+    // Live input for the first connected pad, without reaching for the panel.
+    function padsLive(): string {
+      if (root.pads.streamNode !== "") { root.pads.stopStream(); return "off" }
+      if (root.pads.padCount === 0) return "no controller connected"
+      root.pads.startStream(root.pads.pads[0].node)
+      return "on"
+    }
   }
 
   Component.onCompleted: {

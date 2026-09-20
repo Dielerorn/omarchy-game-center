@@ -36,14 +36,23 @@ Item {
 
   // ------------------------------------------------------------- body
 
+  // PathSvg coordinates are literal — unlike every other element here, they do
+  // not go through `k`, so the Shape has to be laid out at design size and
+  // scaled as a whole. Without this the body draws at 1:1 while the buttons
+  // sit `k` times further out, which looks like wrong geometry but is really a
+  // missing transform.
   Shape {
-    anchors.fill: parent
+    width: Art.design.width
+    height: Art.design.height
+    transform: Scale { xScale: root.k; yScale: root.k }
     preferredRendererType: Shape.CurveRenderer
     antialiasing: true
 
     ShapePath {
       strokeColor: root.restColor(0.45)
-      strokeWidth: Math.max(1, 1.6 * root.k)
+      // Divided by k because the whole Shape is scaled up afterwards, so a
+      // raw width here would come out thicker on a wide panel.
+      strokeWidth: Math.max(1, 1.6 / Math.max(root.k, 0.01))
       fillColor: root.restColor(0.07)
       capStyle: ShapePath.RoundCap
       joinStyle: ShapePath.RoundJoin

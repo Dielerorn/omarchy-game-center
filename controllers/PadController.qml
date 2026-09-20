@@ -156,13 +156,15 @@ QtObject {
   function showLedHelp() { openUdevHelp() }
   function showPairHelp() { openUdevHelp() }
   function openUdevHelp() {
-    docsProcess.command = ["omarchy-launch-floating-terminal-with-presentation",
-                           root.pluginDir + "/bin/gc-udev"]
-    docsProcess.running = true
+    // execDetached, not Process. The launcher exec's into a terminal that must
+    // outlive this call; run as a tracked child it is torn down with the
+    // Process object and the window never appears — which is exactly what
+    // happened the first time.
+    Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation",
+                             root.pluginDir + "/bin/gc-udev"])
   }
 
   property Process ledProcess: Process {}
-  property Process docsProcess: Process {}
 
   function shellQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'" }
 

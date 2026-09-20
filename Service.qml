@@ -111,6 +111,10 @@ QtObject {
     function replayArm(): string { root.replay.arm(); return "arming" }
     function replayDisarm(): string { root.replay.disarm(); return "disarming" }
     function replayToggle(): string { root.replay.toggle(); return "toggling" }
+
+    // Also reachable from the Pads tab; exposed here so it can be tested and
+    // so anyone can reach the rule walkthrough without hunting for the button.
+    function udevHelp(): string { root.pads.openUdevHelp(); return "opening" }
   }
 
   Component.onCompleted: {

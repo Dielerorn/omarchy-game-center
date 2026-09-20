@@ -182,3 +182,35 @@ the panel changing.
 The streamer's lifetime is the subscription: the panel starts it when the live
 view opens and kills it when the tab closes. No idle process, no stdin
 protocol, and a crash costs nothing but the picture until the next open.
+
+## Launch a terminal with execDetached, never with Process
+
+`omarchy-launch-floating-terminal-with-presentation` exec's into a terminal
+that has to outlive the call. Run through a Quickshell `Process`, it is a
+tracked child and gets torn down with the Process object, so no window ever
+appears and nothing is logged — the button simply does nothing.
+
+`Quickshell.execDetached([...])` is the right call for anything whose whole
+point is to outlive the widget that started it.
+
+## `omarchy-restart-shell` must be run unconditionally, then verified
+
+Guarding a restart on a ping —
+
+```bash
+[[ "$(omarchy-shell shell ping)" == "ok" ]] && omarchy-restart-shell   # WRONG
+```
+
+— silently skips the restart whenever the shell is briefly busy, which it often
+is right after an edit triggers a plugin reload. The loop that then waits for
+`ok` finds the *old* shell still answering and reports success, so the next
+test runs against code that was never loaded. This masqueraded as Qt serving a
+stale compile, and cost a round of "I fixed it" / "it still doesn't work".
+
+Restart unconditionally and confirm the pid actually changed:
+
+```bash
+before=$(pgrep -f 'quickshell -n -p /usr/share/omarchy/shell' | head -1)
+omarchy-restart-shell
+# then poll until the pid differs and ping answers ok
+```

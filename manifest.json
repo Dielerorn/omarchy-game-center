@@ -23,7 +23,11 @@
     "defaultSection": "right",
     "defaults": {
       "startTab": "session",
-      "panelWidth": 380
+      "panelWidth": 380,
+      "keepAwake": true,
+      "silenceNotifications": true,
+      "nightLightOff": true,
+      "performanceProfile": true
     },
     "schema": [
       {
@@ -47,6 +51,34 @@
         "step": 10,
         "defaultValue": 380,
         "description": "In the shell's spacing units, so it follows your scale. Wider than the screen is trimmed to fit."
+      },
+      {
+        "key": "keepAwake",
+        "type": "boolean",
+        "label": "Session keeps the screen awake",
+        "defaultValue": true,
+        "description": "Only ever claimed when stay-awake is off to begin with. If you turned it on yourself, or another plugin holds it, Game Center leaves it alone and says so in the panel."
+      },
+      {
+        "key": "silenceNotifications",
+        "type": "boolean",
+        "label": "Session silences notifications",
+        "defaultValue": true,
+        "description": "Turns do-not-disturb on for the session and puts it back afterwards — unless you change it yourself mid-session, in which case your change wins."
+      },
+      {
+        "key": "nightLightOff",
+        "type": "boolean",
+        "label": "Session turns off night light",
+        "defaultValue": true,
+        "description": "Restores the exact colour temperature you had, rather than whatever default hyprsunset comes back with."
+      },
+      {
+        "key": "performanceProfile",
+        "type": "boolean",
+        "label": "Session sets the performance power profile",
+        "defaultValue": true,
+        "description": "Hidden on machines that have no performance profile, which is most desktops with a placeholder platform driver."
       }
     ]
   }

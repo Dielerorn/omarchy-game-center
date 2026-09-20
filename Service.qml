@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "session"
 
 // Owner of everything that has to stay correct while nobody is looking.
 //
@@ -28,12 +29,16 @@ QtObject {
   // reboot" without trusting timestamps. Read once; it cannot change.
   property string bootId: ""
 
-  // ----------------------------------------------------------- M0 stubs
-  //
-  // Real implementations land in M1 (session), M2 (replay) and M4 (pads).
-  // They are declared now so the panel can bind to them and the IPC surface
-  // is stable from the first commit.
-  property bool sessionActive: false
+  // M1. Owns the session toggles and their recovery.
+  property SessionController session: SessionController {
+    pluginDir: root.pluginDir
+    runtimeDir: root.runtimeDir
+  }
+
+  readonly property bool sessionActive: session.engaged
+
+  // Replay lands in M2, pads in M4. Declared now so the panel can bind to
+  // them and the IPC surface stays stable.
   property bool replayArmed: false
   property int padCount: 0
 
@@ -75,10 +80,19 @@ QtObject {
     function status(): string {
       return root.statusJson()
     }
+
+    // Bindable without opening the panel:
+    //   bind = SUPER ALT, G, exec, omarchy-shell -q gamecenter sessionToggle
+    function sessionOn(): string { root.session.engage(); return "engaging" }
+    function sessionOff(): string { root.session.release(); return "releasing" }
+    function sessionToggle(): string { root.session.toggle(); return "toggling" }
   }
 
   Component.onCompleted: {
     runtimeDirProcess.running = true
     bootIdProcess.running = true
+    // Recovery first: a session orphaned by a shell restart is put back before
+    // any UI exists to show a stale claim.
+    session.start()
   }
 }

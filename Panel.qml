@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "session"
 
 // Bar chip plus popout. The panel owns view state only — which tab is
 // showing, where the keyboard cursor is — while everything that outlives the
@@ -24,6 +25,13 @@ Panel {
   // first paint, so every read goes through this null check.
   readonly property var gameCenter: bar && bar.shell ? bar.shell.serviceFor("dielerorn.gamecenter") : null
   readonly property bool serviceReady: gameCenter !== null
+  readonly property var session: gameCenter ? gameCenter.session : null
+  readonly property bool sessionOn: session ? session.engaged : false
+
+  // The probe costs four subprocesses, so it runs when the panel opens rather
+  // than on a timer. While the panel is closed the marker watcher is the only
+  // thing keeping state fresh, which is enough for the chip.
+  onOpenedChanged: if (opened && session) session.refresh()
 
   readonly property int panelWidth: setting("panelWidth", 380)
 
@@ -42,7 +50,26 @@ Panel {
     loading = true
     var wanted = String(setting("startTab", "session"))
     tab = tabs.some(function(t) { return t.value === wanted }) ? wanted : "session"
+    if (session) {
+      session.wantIdle = setting("keepAwake", true)
+      session.wantDnd = setting("silenceNotifications", true)
+      session.wantNightlight = setting("nightLightOff", true)
+      session.wantPower = setting("performanceProfile", true)
+    }
     loading = false
+  }
+
+  // The service outlives the panel, so its controller may already exist when
+  // this widget mounts — or arrive a moment later on a cold start.
+  onSessionChanged: if (session) loadSettings()
+
+  Connections {
+    target: root.session
+    ignoreUnknownSignals: true
+    function onWantIdleChanged() { root.persist() }
+    function onWantDndChanged() { root.persist() }
+    function onWantNightlightChanged() { root.persist() }
+    function onWantPowerChanged() { root.persist() }
   }
 
   function tabIndex(value) {
@@ -75,6 +102,12 @@ Panel {
     var entry = { id: root.moduleName }
     for (var key in root.settings) if (key !== "id") entry[key] = root.settings[key]
     entry.startTab = root.tab
+    if (root.session) {
+      entry.keepAwake = root.session.wantIdle
+      entry.silenceNotifications = root.session.wantDnd
+      entry.nightLightOff = root.session.wantNightlight
+      entry.performanceProfile = root.session.wantPower
+    }
     if (JSON.stringify(entry) === JSON.stringify(root.settings)) return
     root.settings = entry
     root.bar.shell.updateEntryInline(root.moduleName, entry)
@@ -144,16 +177,33 @@ Panel {
         PanelHero {
           width: parent.width
           title: "Game Center"
-          meta: root.serviceReady ? "Ready" : "Starting…"
+          meta: {
+            if (!root.serviceReady) return "Starting…"
+            if (root.session && root.session.busy) return "Working…"
+            return root.sessionOn ? "Session on" : "Session off"
+          }
           foreground: root.panelForeground
           fontFamily: root.fontFamily
 
           iconComponent: Component {
             Text {
               text: "󰊴"
-              color: root.panelForeground
+              color: root.sessionOn ? Color.accent : root.panelForeground
               font.family: root.fontFamily
               font.pixelSize: Style.font.display
+            }
+          }
+
+          // The master switch lives in the hero so it is reachable from every
+          // tab without navigating back.
+          trailingControl: Component {
+            ToggleSwitch {
+              checked: root.sessionOn
+              busy: root.session ? root.session.busy : false
+              interactive: root.serviceReady
+              foreground: root.panelForeground
+              accent: Color.accent
+              onToggled: if (root.session) root.session.toggle()
             }
           }
         }
@@ -169,31 +219,24 @@ Panel {
 
         PanelSeparator { width: parent.width }
 
-        // M0 placeholder. Each tab becomes its own component in M1/M2/M4;
-        // for now the panel exists to prove the plugin contract end to end.
-        Text {
+        SessionTab {
           width: parent.width
-          wrapMode: Text.WordWrap
-          color: root.panelForeground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          text: {
-            if (root.tab === "session") return "Session toggles land in M1."
-            if (root.tab === "pads") return "Controllers land in M4."
-            return "Instant replay lands in M2."
-          }
+          visible: root.tab === "session"
+          session: root.session
+          foreground: root.panelForeground
+          fontFamily: root.fontFamily
         }
 
+        // M2 and M4 replace these.
         Text {
           width: parent.width
+          visible: root.tab !== "session"
           wrapMode: Text.WordWrap
           color: root.panelForeground
           opacity: 0.6
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          text: root.serviceReady
-            ? "service ok · runtime " + root.gameCenter.runtimeDir
-            : "service not reachable"
+          font.pixelSize: Style.font.body
+          text: root.tab === "pads" ? "Controllers land in M4." : "Instant replay lands in M2."
         }
       }
     }

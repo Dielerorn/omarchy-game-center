@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "dielerorn.gamecenter",
+  "name": "Game Center",
+  "version": "0.1.0",
+  "author": "Austin Larson",
+  "license": "MIT",
+  "repository": "https://github.com/Dielerorn/omarchy-game-center",
+  "description": "The pre-game ritual in one panel — session toggles, controllers and instant replay, without six separate bar widgets",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Game Center",
+    "description": "Session toggles, controllers and clip capture in one popout",
+    "category": "Games",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "startTab": "session",
+      "panelWidth": 380
+    },
+    "schema": [
+      {
+        "key": "startTab",
+        "type": "enum",
+        "label": "Opens showing",
+        "options": [
+          "session",
+          "pads",
+          "clips"
+        ],
+        "defaultValue": "session",
+        "description": "Which tab the panel is on when it opens. Also follows whichever tab you last left it on."
+      },
+      {
+        "key": "panelWidth",
+        "type": "integer",
+        "label": "Panel width",
+        "min": 300,
+        "max": 640,
+        "step": 10,
+        "defaultValue": 380,
+        "description": "In the shell's spacing units, so it follows your scale. Wider than the screen is trimmed to fit."
+      }
+    ]
+  }
+}

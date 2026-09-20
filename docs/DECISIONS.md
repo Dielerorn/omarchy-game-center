@@ -1,0 +1,75 @@
+# Decisions and verified behaviour
+
+Facts established by running the thing, not by reading docs. Each one is load
+bearing; if one turns out to be false later, the design above it changes.
+
+## The replay buffer must rename its own argv[0]
+
+`omarchy-capture-screenrecording` gates its **entire entry point** on
+`pgrep -f "^gpu-screen-recorder"` and stops recording with
+`pkill -SIGINT -f "^gpu-screen-recorder"`. An armed replay buffer running under
+the default name therefore means the user's screenrecord keybinding **stops the
+replay buffer instead of starting a recording**.
+
+So the buffer is launched as:
+
+```bash
+setsid bash -c "exec -a omarchy-game-center-replay gpu-screen-recorder …"
+```
+
+Verified 2026-09-20 against gpu-screen-recorder 6.1.0 on Omarchy (kernel
+7.2.5-3-omarchy): with the rename in place, `pgrep -f '^gpu-screen-recorder'`
+finds nothing while the buffer runs, and capture still works — a save produced a
+6.0 s, 3440x1440, 60 fps h264 mp4. `tests/run.sh` pins this as a regression
+test, because the mitigation dies silently if Omarchy ever un-anchors that
+pattern.
+
+## Talk to gsr over its own socket, not through a CLI
+
+`-ipc <socket>` speaks newline-delimited JSON, and the reply to `save-replay`
+**carries the saved file path**:
+
+```
+→ {"id":1,"name":"save-replay","data":{"seconds":5}}
+← {"id":1,"result":"ok","data":"…/Replay_2026-09-20_13-04-48.mp4"}
+```
+
+That removes the "watch the directory and guess which file appeared" race.
+Quickshell ships `Socket` in `Quickshell.Io`, so the QML side talks to gsr
+directly. `gsr-cli -ipc <sock> save-replay` is the fallback, and `SIGUSR1` the
+last resort (whole buffer, no path returned).
+
+A save requested before the ring buffer holds a keyframe fails cleanly with
+`{"result":"error","data":"failed to save the replay"}` — the UI must treat an
+early save as a normal outcome, not an error state.
+
+## Socket path
+
+`$XDG_RUNTIME_DIR/omarchy-game-center/gsr.sock` is 45 bytes here, well inside
+the 108-byte `sun_path` limit. `omaclippr` hardcodes `/tmp` claiming the limit
+forces it; that isn't true and `/tmp` is a shared namespace. The launcher still
+asserts the length and falls back to `/tmp/omarchy-game-center-$UID/`.
+
+## Never identify our own process by `comm`
+
+`/proc/<pid>/comm` truncates at 15 characters, so `pgrep -x
+omarchy-game-center-replay` matches nothing. Match on the full command line
+(`pgrep -f "^omarchy-game-center-replay "`) — and in the plugin itself, use the
+recorded pid + start-time file rather than pattern matching at all.
+
+`SIGTERM` did not stop the recorder within 2 s in testing. Stop it the way the
+stock script does, with `SIGINT` (which finalizes the file properly), then
+escalate.
+
+## Newly created QML needs a full shell restart
+
+Editing a file the shell has already loaded hot-reloads fine. A **newly created**
+plugin or QML file is served from a stale compilation until
+`omarchy-restart-shell` — a fixed error keeps being reported at the old line and
+column, which is misleading while developing. Restart before believing an error
+that no longer matches the source.
+
+## `gc` is a reserved property name in QML
+
+`readonly property var gc: …` fails with `Illegal property name`. The service
+handle on the panel is called `gameCenter`.

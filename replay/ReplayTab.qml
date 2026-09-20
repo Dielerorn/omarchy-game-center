@@ -11,6 +11,7 @@ Column {
   id: root
 
   property var replay: null
+  property var clips: null
   property color foreground: Color.popups.text
   property string fontFamily: Style.font.family
 
@@ -18,6 +19,29 @@ Column {
 
   readonly property bool ready: replay !== null
   readonly property bool armed: ready && replay.armed
+  readonly property int clipCount: clips && clips.clips ? clips.clips.length : 0
+
+  // Deleting a clip is not undoable, so it goes through a confirmation naming
+  // the file — the delete button sits next to three harmless ones.
+  property var pendingDelete: null
+  function confirmDelete(clip) {
+    root.pendingDelete = clip
+    deleteDialog.opened = true
+  }
+
+  ConfirmDialog {
+    id: deleteDialog
+    message: root.pendingDelete
+      ? "Delete " + root.pendingDelete.name + " permanently?"
+      : ""
+    confirmText: "Delete"
+    cancelText: "Keep"
+    onConfirmed: {
+      if (root.pendingDelete && root.clips) root.clips.remove(root.pendingDelete.path)
+      root.pendingDelete = null
+    }
+    onCanceled: root.pendingDelete = null
+  }
 
   // kbps × seconds ÷ 8 is the payload. The encoder's working set is a large
   // fixed cost on top of it (measured 180–300MB depending on capture
@@ -135,6 +159,57 @@ Column {
     text: "Changes apply the next time the buffer starts."
   }
 
+  // --------------------------------------------------------- clips
+
+  PanelSeparator { width: parent.width }
+
+  PanelSectionHeader {
+    width: parent.width
+    text: "Recent clips"
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+  }
+
+  Text {
+    width: parent.width
+    visible: root.clipCount === 0
+    wrapMode: Text.WordWrap
+    color: root.foreground
+    opacity: 0.55
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+    text: root.clips && root.clips.loading ? "looking…" : "No clips yet."
+  }
+
+  Column {
+    width: parent.width
+    spacing: Style.spacing.xxs
+
+    Repeater {
+      model: root.clips ? root.clips.clips : []
+
+      ClipRow {
+        width: parent.width
+        clip: modelData
+        // ClipStore replaces the whole map on each arrival, so this binding
+        // re-evaluates when a thumbnail lands.
+        thumb: {
+          if (!root.clips) return ""
+          var t = root.clips.thumbs[modelData.path]
+          return t === undefined ? "" : t
+        }
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+
+        onThumbNeeded: if (root.clips) root.clips.requestThumb(modelData.path)
+        onOpenRequested: if (root.clips) root.clips.open(modelData.path)
+        onRevealRequested: if (root.clips) root.clips.reveal(modelData.path)
+        onCopyRequested: if (root.clips) root.clips.copyPath(modelData.path)
+        onDeleteRequested: root.confirmDelete(modelData)
+      }
+    }
+  }
+
   // --------------------------------------------------------- footer
 
   PanelSeparator { width: parent.width }
@@ -150,9 +225,8 @@ Column {
       if (!root.ready) return "starting…"
       if (root.replay.error !== "") return root.replay.error
       if (root.replay.stockRecording) return "A screen recording is also running — both share the GPU encoder."
-      if (root.replay.lastClip !== "")
-        return "Last clip: " + String(root.replay.lastClip).split("/").pop()
-      return root.armed ? "Nothing saved yet." : "Clip list arrives in M3."
+      if (root.clips && root.clips.error !== "") return root.clips.error
+      return root.armed ? "Buffer running." : ""
     }
   }
 }

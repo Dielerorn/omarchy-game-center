@@ -46,6 +46,14 @@ QtObject {
 
   readonly property bool replayArmed: replay.armed
 
+  // M3. The saved-clip list, refreshed when a clip lands rather than polled.
+  property ClipStore clipStore: ClipStore { pluginDir: root.pluginDir }
+
+  property Connections clipRefresh: Connections {
+    target: root.replay
+    function onClipSaved(path) { root.clipStore.refresh() }
+  }
+
   // Pads land in M4.
   property int padCount: 0
 

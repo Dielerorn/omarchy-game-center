@@ -30,6 +30,7 @@ Panel {
   readonly property bool sessionOn: session ? session.engaged : false
   readonly property var replay: gameCenter ? gameCenter.replay : null
   readonly property bool replayArmed: replay ? replay.armed : false
+  readonly property var clipStore: gameCenter ? gameCenter.clipStore : null
 
   // The probe costs four subprocesses, so it runs when the panel opens rather
   // than on a timer. While the panel is closed the marker watcher is the only
@@ -38,6 +39,9 @@ Panel {
     if (!opened) return
     if (session) session.refresh()
     if (replay) replay.refresh()
+    // One find per open, not a watcher on the video folder: that can live on a
+    // network mount and a FileView there would stall the event loop.
+    if (clipStore) clipStore.refresh()
   }
 
   readonly property int panelWidth: setting("panelWidth", 380)
@@ -265,6 +269,7 @@ Panel {
           width: parent.width
           visible: root.tab === "clips"
           replay: root.replay
+          clips: root.clipStore
           foreground: root.panelForeground
           fontFamily: root.fontFamily
         }

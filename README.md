@@ -14,7 +14,7 @@ other.
 omarchy plugin add https://github.com/Dielerorn/omarchy-game-center.git --enable
 ```
 
-## What it will do
+## What it does
 
 **Session** — one switch for the things you flip before playing: keep awake, do
 not disturb, night light, power profile. Game Center only ever changes what it

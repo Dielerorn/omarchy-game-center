@@ -4,6 +4,7 @@ import Quickshell.Io
 import "session"
 import "replay"
 import "controllers"
+import "overlay"
 
 // Owner of everything that has to stay correct while nobody is looking.
 //
@@ -60,12 +61,16 @@ QtObject {
 
   readonly property int padCount: pads.padCount
 
+  // M6. The in-game stats overlay and its MangoHud bridge.
+  property OverlayController overlay: OverlayController { pluginDir: root.pluginDir }
+
   function statusJson() {
     return JSON.stringify({
       version: "0.1.0",
       session: root.sessionActive,
       replay: root.replayArmed,
       pads: root.padCount,
+      overlay: root.overlay.enabled,
       runtimeDir: root.runtimeDir,
       bootId: root.bootId
     })
@@ -115,6 +120,12 @@ QtObject {
     // Also reachable from the Pads tab; exposed here so it can be tested and
     // so anyone can reach the rule walkthrough without hunting for the button.
     function udevHelp(): string { root.pads.openUdevHelp(); return "opening" }
+
+    // The other one worth binding to a key:
+    //   bind = SUPER ALT, O, exec, omarchy-shell -q gamecenter overlayToggle
+    function overlayToggle(): string { root.overlay.toggle(); return "toggling" }
+    function overlayOn(): string { root.overlay.enabled = true; return "on" }
+    function overlayOff(): string { root.overlay.enabled = false; return "off" }
   }
 
   Component.onCompleted: {

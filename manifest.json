@@ -31,7 +31,14 @@
       "replaySeconds": 30,
       "replayStorage": "ram",
       "replayQuality": "balanced",
-      "replayAudio": "desktop"
+      "replayAudio": "desktop",
+      "overlayCorner": "top-right",
+      "overlayCpu": true,
+      "overlayGpu": true,
+      "overlayRam": true,
+      "overlayVram": true,
+      "overlayTemps": true,
+      "overlayPower": false
     },
     "schema": [
       {
@@ -41,7 +48,8 @@
         "options": [
           "session",
           "pads",
-          "clips"
+          "clips",
+          "overlay"
         ],
         "defaultValue": "session",
         "description": "Which tab the panel is on when it opens. Also follows whichever tab you last left it on."
@@ -129,6 +137,57 @@
         ],
         "defaultValue": "desktop",
         "description": "'both' adds your microphone to the desktop audio."
+      },
+      {
+        "key": "overlayCorner",
+        "type": "enum",
+        "label": "Overlay corner",
+        "options": [
+          "top-left",
+          "top-right",
+          "bottom-left",
+          "bottom-right"
+        ],
+        "defaultValue": "top-right",
+        "description": "Which corner the in-game stats sit in, on whichever screen the game is on."
+      },
+      {
+        "key": "overlayCpu",
+        "type": "boolean",
+        "label": "Overlay shows CPU load",
+        "defaultValue": true
+      },
+      {
+        "key": "overlayGpu",
+        "type": "boolean",
+        "label": "Overlay shows GPU load",
+        "defaultValue": true
+      },
+      {
+        "key": "overlayRam",
+        "type": "boolean",
+        "label": "Overlay shows system memory",
+        "defaultValue": true
+      },
+      {
+        "key": "overlayVram",
+        "type": "boolean",
+        "label": "Overlay shows VRAM",
+        "defaultValue": true
+      },
+      {
+        "key": "overlayTemps",
+        "type": "boolean",
+        "label": "Overlay shows temperatures",
+        "defaultValue": true,
+        "description": "Amber past 80°C, red past 90°C."
+      },
+      {
+        "key": "overlayPower",
+        "type": "boolean",
+        "label": "Overlay shows GPU power draw",
+        "defaultValue": false,
+        "description": "NVIDIA only; the AMD sysfs path doesn't report it."
       }
     ]
   },

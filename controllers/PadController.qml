@@ -113,28 +113,46 @@ QtObject {
   // The guide-button ring. `mode` on the xone LED takes blink patterns, but
   // brightness is the one every driver agrees on, so identify-by-blinking is
   // done by hand rather than by trusting a pattern number.
+  //
+  // Brightness is 0..max_brightness, and max is 50 on an Xbox pad — not 1.
+  // The first version blinked between 0 and 1 and "restored" to 1, which is 2%
+  // of full and looks exactly like a controller that has died. The level the
+  // pad had before we touched it is read first and put back at the end.
   property int _blinkCount: 0
-  function blinkLed(ledPath) {
+  property string _blinkTarget: ""
+  property int _blinkRestore: 0
+  property int _blinkHigh: 1
+
+  function blinkLed(ledPath, current, max) {
     if (!ledPath) return
+    if (root._blinkTarget !== "") return      // already blinking this or another
     root._blinkTarget = ledPath
+    root._blinkRestore = Number(current) > 0 ? Number(current) : Number(max) || 1
+    root._blinkHigh = Number(max) > 0 ? Number(max) : root._blinkRestore
     root._blinkCount = 6
     blinkTimer.start()
   }
 
-  property string _blinkTarget: ""
+  function endBlink() {
+    blinkTimer.stop()
+    if (root._blinkTarget === "") return
+    root.writeLed(root._blinkTarget, root._blinkRestore)
+    root._blinkTarget = ""
+    root._blinkCount = 0
+  }
+
   property Timer blinkTimer: Timer {
     interval: 180
     repeat: true
     onTriggered: {
       if (root._blinkCount <= 0 || root._blinkTarget === "") {
-        stop()
-        // Always finish bright: leaving someone's controller light off would
-        // look like the pad died.
-        root.writeLed(root._blinkTarget, 1)
-        root._blinkTarget = ""
+        root.endBlink()
         return
       }
-      root.writeLed(root._blinkTarget, root._blinkCount % 2)
+      // Full brightness on, fully off — a blink you can actually see across
+      // a desk, rather than two shades of dim.
+      root.writeLed(root._blinkTarget,
+                    root._blinkCount % 2 === 0 ? root._blinkHigh : 0)
       root._blinkCount--
     }
   }

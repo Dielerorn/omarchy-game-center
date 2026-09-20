@@ -128,7 +128,9 @@ Column {
           bordered: true
           foreground: root.foreground
           fontFamily: root.fontFamily
-          onClicked: if (root.ready) root.pads.blinkLed(modelData.led.path)
+          onClicked: if (root.ready) root.pads.blinkLed(modelData.led.path,
+                                                        modelData.led.brightness,
+                                                        modelData.led.max)
         }
       }
 
@@ -154,6 +156,7 @@ Column {
         width: parent.width
         visible: root.ready && root.pads.streamNode === modelData.node
         state: root.ready ? root.pads.padState : null
+        driver: modelData.driver
         foreground: root.foreground
         fontFamily: root.fontFamily
       }

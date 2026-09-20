@@ -214,3 +214,36 @@ before=$(pgrep -f 'quickshell -n -p /usr/share/omarchy/shell' | head -1)
 omarchy-restart-shell
 # then poll until the pid differs and ping answers ok
 ```
+
+## LED brightness is 0..max_brightness, and max is 50 — not 1
+
+The guide ring on an Xbox pad reports `max_brightness` 50 and sits at 20 by
+default. The first blink implementation treated it as a boolean: it blinked
+between 0 and 1 and "restored" to 1, which is 2% of full and looks exactly like
+a controller that has died. The light stayed like that until it was put back by
+hand.
+
+The level the pad had before the blink is now read first and restored at the
+end, the blink uses `max_brightness` for the on phase so it is visible across a
+desk, and closing the panel mid-blink restores the light rather than leaving it
+wherever the timer stopped.
+
+Any sysfs LED: read `max_brightness` before writing `brightness`, and put back
+what was there rather than a value that merely means "on".
+
+## The overlay cannot show FPS, and says so
+
+Counting frames requires code inside the game's own process — that is what
+MangoHud's Vulkan and OpenGL layers are. A layer-shell window on top of the
+game sees compositor frames, not the game's, and any number derived from the
+outside would be a guess presented as a measurement.
+
+So the overlay shows what can be read honestly from /proc, /sys and nvidia-smi
+(CPU, GPU, VRAM, memory, temperatures, power), and the FPS section explains the
+limit and offers to install and configure MangoHud for the one thing it cannot
+do. `bin/gc-mangohud` writes the same corner and metric choices into MangoHud's
+config inside a marked block, so someone who has tuned their own config does
+not lose it.
+
+A metric that cannot be read is omitted from the JSON rather than sent as zero,
+so the overlay leaves the row out instead of confidently displaying 0%.

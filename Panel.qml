@@ -4,6 +4,7 @@ import qs.Ui
 import "session"
 import "replay"
 import "controllers"
+import "overlay"
 
 // Bar chip plus popout. The panel owns view state only — which tab is
 // showing, where the keyboard cursor is — while everything that outlives the
@@ -33,6 +34,7 @@ Panel {
   readonly property bool replayArmed: replay ? replay.armed : false
   readonly property var clipStore: gameCenter ? gameCenter.clipStore : null
   readonly property var padStore: gameCenter ? gameCenter.pads : null
+  readonly property var overlayStore: gameCenter ? gameCenter.overlay : null
 
   // The probe costs four subprocesses, so it runs when the panel opens rather
   // than on a timer. While the panel is closed the marker watcher is the only
@@ -43,6 +45,8 @@ Panel {
       if (padStore) {
         padStore.watching = false
         padStore.stopStream()
+        // A half-finished blink would otherwise leave the light off.
+        padStore.endBlink()
       }
       return
     }
@@ -72,7 +76,8 @@ Panel {
   readonly property var tabs: [
     { value: "session", label: "Session" },
     { value: "pads", label: "Pads" },
-    { value: "clips", label: "Clips" }
+    { value: "clips", label: "Clips" },
+    { value: "overlay", label: "Overlay" }
   ]
 
   property string tab: "session"
@@ -88,6 +93,15 @@ Panel {
       session.wantNightlight = setting("nightLightOff", true)
       session.wantPower = setting("performanceProfile", true)
     }
+    if (overlayStore) {
+      overlayStore.corner = setting("overlayCorner", "top-right")
+      overlayStore.showCpu = setting("overlayCpu", true)
+      overlayStore.showGpu = setting("overlayGpu", true)
+      overlayStore.showRam = setting("overlayRam", true)
+      overlayStore.showVram = setting("overlayVram", true)
+      overlayStore.showTemps = setting("overlayTemps", true)
+      overlayStore.showPower = setting("overlayPower", false)
+    }
     if (replay) {
       replay.seconds = setting("replaySeconds", 30)
       replay.storage = setting("replayStorage", "ram")
@@ -101,6 +115,7 @@ Panel {
   // this widget mounts — or arrive a moment later on a cold start.
   onSessionChanged: if (session) loadSettings()
   onReplayChanged: if (replay) loadSettings()
+  onOverlayStoreChanged: if (overlayStore) loadSettings()
 
   Connections {
     target: root.session
@@ -109,6 +124,18 @@ Panel {
     function onWantDndChanged() { root.persist() }
     function onWantNightlightChanged() { root.persist() }
     function onWantPowerChanged() { root.persist() }
+  }
+
+  Connections {
+    target: root.overlayStore
+    ignoreUnknownSignals: true
+    function onCornerChanged() { root.persist() }
+    function onShowCpuChanged() { root.persist() }
+    function onShowGpuChanged() { root.persist() }
+    function onShowRamChanged() { root.persist() }
+    function onShowVramChanged() { root.persist() }
+    function onShowTempsChanged() { root.persist() }
+    function onShowPowerChanged() { root.persist() }
   }
 
   Connections {
@@ -155,6 +182,15 @@ Panel {
       entry.silenceNotifications = root.session.wantDnd
       entry.nightLightOff = root.session.wantNightlight
       entry.performanceProfile = root.session.wantPower
+    }
+    if (root.overlayStore) {
+      entry.overlayCorner = root.overlayStore.corner
+      entry.overlayCpu = root.overlayStore.showCpu
+      entry.overlayGpu = root.overlayStore.showGpu
+      entry.overlayRam = root.overlayStore.showRam
+      entry.overlayVram = root.overlayStore.showVram
+      entry.overlayTemps = root.overlayStore.showTemps
+      entry.overlayPower = root.overlayStore.showPower
     }
     if (root.replay) {
       entry.replaySeconds = root.replay.seconds

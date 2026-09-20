@@ -107,4 +107,5 @@ else
 fi
 
 echo
-read -r -p "Press enter to close. " _
+read -r -p "Press enter to close. " _ || true
+exit 0

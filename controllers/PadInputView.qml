@@ -5,19 +5,32 @@ import qs.Ui
 // Live input: lit chips for the buttons, a box with a dot per stick, a bar per
 // trigger.
 //
-// Chips rather than a drawn controller silhouette, on purpose for now. A
-// silhouette is prettier but only honest for the pad it was drawn as, and the
-// moment someone connects a DualSense or a Switch Pro it is showing them a
-// picture of the wrong hardware. Chips are correct for anything and legible at
-// panel size; PadArt can arrive later behind the same data.
+// A drawn pad for the families we have art for, and lit chips for everything
+// else. A silhouette is only honest for the hardware it was drawn as — showing
+// an Xbox outline to someone holding a DualSense would be worse than showing
+// no picture — so `hasArt` decides, and the chip grid stays as the fallback
+// that is correct for anything.
 Column {
   id: root
 
   property var state: null          // { b: {...}, a: {...} }
+  property string driver: ""
   property color foreground: Color.popups.text
   property string fontFamily: Style.font.family
 
+  // The art is an Xbox pad, so it is only shown for Xbox drivers.
+  readonly property bool hasArt:
+    driver === "xone_gip_gamepad" || driver === "hid_xpadneo" || driver === "xpad"
+
   spacing: Style.spacing.sm
+
+  PadShape {
+    width: parent.width
+    visible: root.hasArt
+    state: root.state
+    foreground: root.foreground
+    accent: Color.accent
+  }
 
   function pressed(name) {
     return state && state.b && state.b[name] === true
@@ -30,9 +43,13 @@ Column {
   }
 
   // --------------------------------------------------------- sticks
+  //
+  // Everything below is the no-art fallback: correct for any pad, legible,
+  // and never a picture of the wrong hardware.
 
   Row {
     width: parent.width
+    visible: !root.hasArt
     spacing: Style.spacing.md
 
     Repeater {
@@ -136,6 +153,7 @@ Column {
 
   Flow {
     width: parent.width
+    visible: !root.hasArt
     spacing: Style.spacing.xs
 
     Repeater {
@@ -168,6 +186,7 @@ Column {
   // --------------------------------------------------------- d-pad
 
   Row {
+    visible: !root.hasArt
     spacing: Style.spacing.xs
 
     Text {

@@ -213,5 +213,66 @@ if [[ "$size" == "48" ]]; then ok "ff_effect struct is 48 bytes"
 else bad "ff_effect struct is 48 bytes (got '$size')"; fi
 
 echo
+echo "overlay"
+stats="$("$PLUGIN_DIR/bin/gc-stats" --interval 0.3 2>/dev/null | head -2 | tail -1)"
+if jq -e '.t == "stats"' <<<"$stats" >/dev/null 2>&1; then
+  ok "stats helper emits a sample"
+else
+  bad "stats helper emits a sample"
+fi
+
+# A metric that cannot be read must be absent, not zero — the overlay leaves
+# the row out rather than confidently showing 0%.
+if jq -e 'has("cpu") and (.cpu.percent | type == "number")' <<<"$stats" >/dev/null 2>&1; then
+  ok "cpu load is a number"
+else
+  bad "cpu load is a number"
+fi
+if jq -e 'has("ram") and (.ram.totalMb > 0)' <<<"$stats" >/dev/null 2>&1; then
+  ok "memory is reported"
+else
+  bad "memory is reported"
+fi
+
+# MangoHud config writing, into a throwaway config dir.
+tmp="$(mktemp -d)"
+if XDG_CONFIG_HOME="$tmp" "$PLUGIN_DIR/bin/gc-mangohud" --position bottom-left \
+     --metrics cpu,gpu,temps </dev/null >/dev/null 2>&1; then
+  conf="$tmp/MangoHud/MangoHud.conf"
+  if grep -q '^position=bottom-left' "$conf" 2>/dev/null && grep -q '^fps' "$conf" 2>/dev/null; then
+    ok "mangohud config is written with the chosen corner"
+  else
+    bad "mangohud config is written with the chosen corner"
+  fi
+  # A second run must not duplicate the block.
+  XDG_CONFIG_HOME="$tmp" "$PLUGIN_DIR/bin/gc-mangohud" --position top-left \
+    --metrics cpu </dev/null >/dev/null 2>&1
+  if [[ "$(grep -c 'begin game-center' "$conf" 2>/dev/null)" == "1" ]]; then
+    ok "rewriting mangohud config replaces its block rather than stacking"
+  else
+    bad "rewriting mangohud config replaces its block rather than stacking"
+  fi
+else
+  bad "mangohud config is written"
+fi
+rm -rf "$tmp"
+
+# The drawn pad must agree with the button map: Y north, A south, X west,
+# B east. A picture that disagrees with the input is worse than no picture.
+if python3 - "$PLUGIN_DIR/controllers/PadArt.js" <<'PYEOF' >/dev/null 2>&1
+import re, sys
+src = open(sys.argv[1]).read()
+block = re.search(r"faceButtons = \[(.*?)\]", src, re.S).group(1)
+pos = {m[0]: (float(m[1]), float(m[2]))
+       for m in re.findall(r'key:\s*"(\w+)",\s*label:\s*"\w+",\s*x:\s*([\d.]+),\s*y:\s*([\d.]+)', block)}
+ok = (pos["y"][1] < pos["a"][1]          # Y above A
+      and pos["x"][0] < pos["b"][0]      # X left of B
+      and pos["x"][0] < pos["y"][0] < pos["b"][0])
+sys.exit(0 if ok else 1)
+PYEOF
+then ok "drawn pad has Y north, A south, X west, B east"
+else bad "drawn pad face buttons are in the wrong positions"; fi
+
+echo
 printf 'pass %d · fail %d · skip %d\n' "$PASS" "$FAIL" "$SKIP"
 [[ $FAIL -eq 0 ]]

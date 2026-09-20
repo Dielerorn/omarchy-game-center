@@ -15,6 +15,7 @@ where the machine is, once, and the answer is data.
 Prints one JSON object on stdout.
 """
 
+import fcntl
 import glob
 import json
 import os
@@ -420,7 +421,73 @@ def is_gamepad(dev):
     return looks_like_pad and dev.get("vendor", "") in PAD_VENDORS
 
 
-def connection_for(dev, driver):
+VIRTUAL_PREFIX = "/devices/virtual/"
+
+EV_FF = 0x15
+FF_RUMBLE = 0x50
+
+
+def is_virtual(sysfs_rel):
+    """A uinput device, created by a program rather than by hardware.
+
+    Steam Input does this: it takes the real controller over hidraw and
+    publishes an emulated Xbox 360 pad in its place, which is why a Steam
+    Controller can show up here calling itself "Microsoft X-Box 360 pad".
+    """
+    return sysfs_rel.startswith(VIRTUAL_PREFIX)
+
+
+def evdev_can_rumble(node):
+    """Ask the node itself whether it has FF_RUMBLE.
+
+    Used only when the driver is unknown, which is the virtual-device case.
+    The driver table stays the source of truth for real hardware, where it
+    encodes things a capability bit cannot tell you — but a device with no
+    driver has no row in it, and defaulting an emulated pad to "no rumble"
+    hides a control that demonstrably works.
+    """
+    if not node:
+        return False
+    try:
+        fd = os.open(node, os.O_RDONLY | os.O_NONBLOCK)
+    except OSError:
+        return False
+    try:
+        buf = bytearray(16)
+        fcntl.ioctl(fd, (2 << 30) | (len(buf) << 16) | (ord("E") << 8) | (0x20 + EV_FF), buf)
+        return bool(buf[FF_RUMBLE // 8] >> (FF_RUMBLE % 8) & 1)
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+def emulation_for(pad, claimed):
+    """If this virtual pad stands in for a controller something has taken.
+
+    The link is by vendor: Steam's emulated pad carries Valve's own vendor id
+    (28de:11ff) while the real Steam Controller it replaced sits in `claimed`
+    under the same vendor. That is circumstantial rather than certain, so the
+    panel words it as what it is — one device taken, one appeared — and the
+    claim is only made when both halves are actually present.
+    """
+    if not pad.get("virtual"):
+        return None
+    for device in claimed:
+        if device.get("vendor") and device["vendor"] == pad.get("vendor"):
+            return {
+                "name": device["name"],
+                "holder": (device.get("holder") or {}).get("name"),
+            }
+    return None
+
+
+def connection_for(dev, driver, sysfs=""):
+    # A uinput device is not plugged into anything. Reporting the bus it
+    # inherited would read as "wired", which is a claim about a cable that
+    # does not exist.
+    if sysfs and is_virtual(sysfs):
+        return "virtual"
     if driver == "hid_steam":
         # One dongle serves up to four controllers, all sharing product 0x1142;
         # the wired pad is 0x1102. Telling them apart by product id is the only
@@ -460,10 +527,16 @@ def main():
         event = next((h for h in dev.get("handlers", []) if h.startswith("event")), "")
         node = "/dev/input/" + event if event else ""
 
+        # No driver means no row in DRIVER_CAPS, so everything defaulted to
+        # False — including rumble on an emulated pad that really does have
+        # FF_RUMBLE. Ask the node rather than shrug.
+        if driver not in DRIVER_CAPS:
+            caps["rumble"] = evdev_can_rumble(node)
+
         pads.append({
             "name": dev.get("name", "Controller"),
             "driver": driver or "unknown",
-            "connection": connection_for(dev, driver),
+            "connection": connection_for(dev, driver, sysfs),
             "vendor": dev.get("vendor", ""),
             "product": dev.get("product", ""),
             "uniq": dev.get("uniq", ""),
@@ -472,16 +545,23 @@ def main():
             # root — but say so explicitly rather than assuming.
             "nodeWritable": bool(node) and os.access(node, os.W_OK),
             "sysfs": sysfs,
+            "virtual": is_virtual(sysfs),
             "battery": battery,
             "led": led,
             "caps": caps,
         })
 
+    # Claimed devices are worked out before the pads are finished, because a
+    # virtual pad's whole explanation is which real controller went missing.
+    claimed = claimed_devices(pads)
+    for pad in pads:
+        pad["emulates"] = emulation_for(pad, claimed)
+
     out = {
         "pads": pads,
         # Plugged in, but handed to a program that asked for it. Empty unless
         # all three signals in claimed_devices() agree.
-        "claimed": claimed_devices(pads),
+        "claimed": claimed,
         "dongles": dongles(),
         "drivers": sorted({
             m for m in (read("/proc/modules").split("\n") and [

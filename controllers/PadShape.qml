@@ -31,6 +31,14 @@ Item {
   visible: art !== null
 
   function pressed(name) { return state && state.b && state.b[name] === true }
+  // A trackpad whose click is reported per quadrant has no single "clicked"
+  // key, so the body lights when any quadrant does.
+  function pressedQuadrant(quadrants) {
+    if (!quadrants) return false
+    for (var i = 0; i < quadrants.length; i++)
+      if (root.pressed(quadrants[i].key)) return true
+    return false
+  }
   function axis(name) {
     if (!state || !state.a) return 0
     var v = state.a[name]
@@ -148,8 +156,9 @@ Item {
       Rectangle {
         anchors.fill: parent
         radius: modelData.round === false ? Style.cornerRadius : width / 2
-        color: root.pressed(modelData.key) ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.25)
-                                           : root.restColor(0.07)
+        color: (root.pressed(modelData.key) || root.pressedQuadrant(modelData.quadrants))
+                 ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.25)
+                 : root.restColor(0.07)
         border.width: 1
         border.color: root.restColor(0.18)
       }
@@ -164,6 +173,25 @@ Item {
         y: (parent.height - height) / 2 - root.axis(modelData.axisY) * (parent.height - height) / 2
         Behavior on x { NumberAnimation { duration: 40 } }
         Behavior on y { NumberAnimation { duration: 40 } }
+      }
+
+      // Which way the pad was clicked. The driver gives the direction, so
+      // showing all four the same way would throw away something true.
+      Repeater {
+        model: modelData.quadrants || []
+
+        Rectangle {
+          // `modelData` is the quadrant here, not the trackpad, so the size
+          // comes from the parent's width (already scaled by k) rather than
+          // from a `r` this object does not have.
+          width: Math.max(4, parent.width * 0.08)
+          height: width
+          radius: width / 2
+          color: root.accent
+          visible: root.pressed(modelData.key)
+          x: (parent.width - width) / 2 + modelData.dx * parent.width * 0.33
+          y: (parent.height - height) / 2 + modelData.dy * parent.height * 0.33
+        }
       }
     }
   }

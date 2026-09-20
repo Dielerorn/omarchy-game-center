@@ -237,6 +237,66 @@ case $? in
   *) bad "a controller with a working node is never reported as claimed" ;;
 esac
 
+# Steam Input takes the real controller over hidraw and publishes an emulated
+# Xbox 360 pad in its place, under Valve's own vendor id. Left unlabelled, the
+# panel calls a Steam Controller "Microsoft X-Box 360 pad" and looks broken.
+if jq -e '[.pads[] | has("virtual")] | all' <<<"$probe" >/dev/null 2>&1; then
+  ok "every pad says whether it is virtual ($(jq '[.pads[]|select(.virtual)]|length' <<<"$probe") emulated)"
+else
+  bad "every pad says whether it is virtual"
+fi
+
+# A uinput device is not plugged into anything, so reporting the bus it
+# inherited would be a claim about a cable that does not exist.
+if jq -e '[.pads[] | select(.virtual) | .connection == "virtual"] | all' \
+     <<<"$probe" >/dev/null 2>&1; then
+  ok "virtual pads report connection \"virtual\", not a bus"
+else
+  bad "virtual pads report connection \"virtual\", not a bus"
+fi
+
+# Only a virtual pad can stand in for something, and when it does it must name
+# both halves — the panel builds a sentence out of them.
+if jq -e '[.pads[] | select(.emulates != null)
+          | .virtual == true and (.emulates.name | type == "string")] | all' \
+     <<<"$probe" >/dev/null 2>&1; then
+  ok "an emulated pad names the controller it stands in for"
+else
+  bad "an emulated pad names the controller it stands in for"
+fi
+
+# A pad with no driver row got every capability defaulted to false, including
+# rumble on an emulated pad that really has FF_RUMBLE. The node is asked
+# instead, so this must agree with the node's own bits.
+python3 - "$probe" <<'VIRTEOF' >/dev/null 2>&1
+import fcntl, json, os, sys
+probe = json.loads(sys.argv[1])
+checked = 0
+for pad in probe.get("pads", []):
+    node = pad.get("node")
+    if pad.get("driver") != "unknown" or not node:
+        continue
+    try:
+        fd = os.open(node, os.O_RDONLY | os.O_NONBLOCK)
+    except OSError:
+        continue
+    buf = bytearray(16)
+    try:
+        fcntl.ioctl(fd, (2 << 30) | (16 << 16) | (ord("E") << 8) | (0x20 + 0x15), buf)
+    finally:
+        os.close(fd)
+    real = bool(buf[0x50 // 8] >> (0x50 % 8) & 1)
+    if pad["caps"]["rumble"] != real:
+        sys.exit(1)
+    checked += 1
+sys.exit(0 if checked else 2)
+VIRTEOF
+case $? in
+  0) ok "a driverless pad's rumble capability matches its evdev FF bits" ;;
+  2) skip "driverless rumble capability" "no driverless pad connected" ;;
+  *) bad "a driverless pad's rumble capability matches its evdev FF bits" ;;
+esac
+
 if jq -e '.dongles | type == "array"' <<<"$probe" >/dev/null 2>&1; then
   ok "dongles enumerated ($(jq '.dongles | length' <<<"$probe") found)"
 else

@@ -120,13 +120,23 @@ var families = {
 
     elements: {
       // The two round pads dominate the face. The left one doubles as the
-      // d-pad — its click is reported as a quadrant (padup/paddown/...) and
-      // never as "the pad was clicked", so there is no single click key for
-      // it. The finger dot only appears while the pad is actually touched,
+      // d-pad: its click is reported as a quadrant (padup/paddown/...) and
+      // never as "the pad was clicked", so it has no single click key. It
+      // declares `quadrants` instead — the pad lights when any of them is
+      // pressed, and a marker shows which. Binding `key` to one of the four,
+      // as this did, leaves the other three lighting nothing at all.
+      //
+      // The finger dot only appears while the pad is actually touched,
       // because an untouched pad reports its centre.
       trackpads: [
-        { key: "padup", touchKey: "lpadtouch", axisX: "hx", axisY: "hy",
-          x: 80, y: 82, r: 28 },
+        { touchKey: "lpadtouch", axisX: "hx", axisY: "hy",
+          x: 80, y: 82, r: 28,
+          quadrants: [
+            { key: "padup",    dx:  0, dy: -1 },
+            { key: "paddown",  dx:  0, dy:  1 },
+            { key: "padleft",  dx: -1, dy:  0 },
+            { key: "padright", dx:  1, dy:  0 }
+          ] },
         { key: "rs", touchKey: "rpadtouch", axisX: "rx", axisY: "ry",
           x: 220, y: 82, r: 28 }
       ],

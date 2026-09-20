@@ -362,3 +362,44 @@ actually holding one of its hidraw nodes. The third is load bearing rather than
 decorative — a wireless dongle with no controller switched on plausibly
 presents the first two, and announcing that as "in use" would be the same class
 of lie. When no holder can be identified the panel says nothing extra.
+
+## Steam does not remove the controller, it swaps in an emulated one
+
+The hidraw-claim note above is only half the story. When the holder is a bare
+Wine prefix the pad simply vanishes. When it is **Steam**, Steam Input takes
+the controller and publishes a uinput Xbox 360 pad in its place, carrying
+Valve's own vendor id:
+
+```
+pads     Microsoft X-Box 360 pad 0   28de:11ff
+         /devices/virtual/input/input51    driver unknown, FF_RUMBLE present
+claimed  Steam Controller            28de:1102    holder: steam
+```
+
+Both lines come out of the same probe. Connecting them is the whole fix: until
+it did, the panel listed a Steam Controller as "Microsoft X-Box 360 pad 0",
+subtitled "wired · unknown" — a cable it does not have and a driver it does not
+have, about hardware that does not exist.
+
+So a pad under `/devices/virtual/` is flagged `virtual`, reports its connection
+as `virtual` rather than the bus it inherited, and gains an `emulates` block
+when a claimed device shares its vendor id. The link is by vendor and therefore
+circumstantial, so it is only claimed when both halves are present, and the
+panel words it as what was observed: one controller taken, one pad appeared.
+
+Two things follow that look like bugs and are not:
+
+- **No silhouette.** `driver` is `unknown`, `familyFor()` returns "", and it
+  falls back to the chip grid. That is correct — a drawn pad is a claim about
+  what you are holding, and an Xbox outline would be wrong twice over.
+- **It rumbles.** The emulated node has `FF_RUMBLE` even though the 2015 pad
+  has no `EV_FF` at all. Capabilities come from `DRIVER_CAPS`, a device with no
+  driver has no row, and everything defaulted to false — hiding a control that
+  works. A driverless pad now has its rumble read from the node's own FF bits.
+  The driver table stays authoritative for real hardware, where it encodes
+  things a capability bit cannot tell you.
+
+The practical warning: this device reports **Steam's mapping**, not the
+driver's — a digital hat at −1..1 where the real pad has a trackpad at ±32767,
+no trigger clicks, no pad-touch, no grips. Measuring the Steam Controller
+through it documents Steam Input and calls it `hid-steam`. Close Steam first.

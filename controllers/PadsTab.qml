@@ -103,7 +103,7 @@ Column {
           Text {
             width: parent.width
             elide: Text.ElideRight
-            text: root.connectionText(modelData) + " · " + modelData.driver
+            text: root.padSubtitle(modelData)
             color: root.foreground
             opacity: 0.55
             font.family: root.fontFamily
@@ -184,6 +184,25 @@ Column {
         visible: root.ready && root.pads.streamNode === modelData.node
         state: root.ready ? root.pads.padState : null
         driver: modelData.driver
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+      }
+
+      // An emulated pad is not the controller you are holding, and saying so
+      // is the whole point: without this the panel calls a Steam Controller
+      // "Microsoft X-Box 360 pad" and looks simply wrong.
+      GcDegradedRow {
+        width: parent.width
+        visible: modelData.virtual === true && modelData.emulates !== null
+        message: {
+          if (!modelData.emulates) return ""
+          var who = modelData.emulates.holder || "another program"
+          return who + " has your " + modelData.emulates.name
+               + " open and is presenting this emulated pad in its place, so "
+               + "the buttons here are its translation rather than the real "
+               + "controller. Close " + who + " to see the "
+               + modelData.emulates.name + " itself."
+        }
         foreground: root.foreground
         fontFamily: root.fontFamily
       }
@@ -271,11 +290,23 @@ Column {
     }
   }
 
+  // "wired · unknown" is two wrong claims about an emulated pad: there is no
+  // cable and there is no driver, because there is no hardware.
+  function padSubtitle(pad) {
+    if (pad.virtual === true) {
+      if (pad.emulates && pad.emulates.holder)
+        return "emulated by " + pad.emulates.holder
+      return "emulated"
+    }
+    return root.connectionText(pad) + " · " + pad.driver
+  }
+
   function connectionText(pad) {
     switch (pad.connection) {
       case "usb": return "wired"
       case "dongle": return "wireless adapter"
       case "bluetooth": return "bluetooth"
+      case "virtual": return "emulated"
       default: return "connected"
     }
   }

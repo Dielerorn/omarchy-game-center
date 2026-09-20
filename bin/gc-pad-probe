@@ -24,6 +24,7 @@ import sys
 PROC_DEVICES = "/proc/bus/input/devices"
 LEDS = "/sys/class/leds"
 USB_DEVICES = "/sys/bus/usb/devices"
+HID_DEVICES = "/sys/bus/hid/devices"
 
 # What each driver can actually do on Linux. Anything not listed gets the
 # conservative "we can read it, we cannot poke it" treatment.
@@ -73,8 +74,9 @@ DRIVER_CAPS = {
     #             runs on two AAs and never reports charging.
     #   led     — no led_classdev anywhere in the driver.
     #
-    # NOT verified against hardware — see docs/STEAM-CONTROLLER.md for what to
-    # confirm when a pad is actually in hand.
+    # Verified against a wired 28de:1102 on kernel 7.2: the evdev node carries
+    # no FF bits at all, and no power_supply node is registered. See
+    # docs/STEAM-CONTROLLER.md.
     "hid_steam": {
         "rumble": False,
         "triggerRumble": False,
@@ -235,6 +237,147 @@ def dongles():
     return found
 
 
+# Drivers that hand the controller over to a userspace program on request.
+#
+# hid-steam does this by design: when anything opens the controller's hidraw
+# node, the driver unregisters the gamepad's evdev node entirely so that
+# program can drive the pad itself. Steam does it, and so does Wine/Proton's
+# HID backend for a Windows game. The pad then vanishes from this inventory
+# while remaining plugged in, and "no controllers connected" is a misleading
+# thing to say about a controller sitting right there.
+CLAIMABLE_DRIVERS = {"hid_steam"}
+
+# Valve's product ids, used for a display name. The USB product string reads
+# "Wired Controller", which is not what anyone calls it.
+VALVE_PRODUCTS = {
+    "1102": "Steam Controller",
+    "1142": "Wireless Steam Controller",
+}
+
+
+def usb_parent(path):
+    """The USB device directory owning a sysfs path — the node with idVendor."""
+    path = os.path.realpath(path)
+    for _ in range(8):
+        path = os.path.dirname(path)
+        if path in ("/sys", "/", ""):
+            break
+        if os.path.exists(os.path.join(path, "idVendor")):
+            return path
+    return ""
+
+
+def hidraw_holder(nodes):
+    """Which process holds one of these hidraw nodes open, if we can tell.
+
+    Scanning /proc costs about 70ms for ~14k file descriptors, which is
+    affordable once per probe and is the only way to name the program rather
+    than guess at it. Guessing is the thing to avoid here: the obvious message
+    is "Steam is using this controller", and on a machine running a Proton game
+    with Steam closed that is simply false — the holder is winedevice.exe.
+
+    Only processes owned by this user can be inspected. If the holder belongs
+    to someone else we return None and the caller says less, rather than
+    inventing a name.
+    """
+    wanted = {"/dev/" + n for n in nodes}
+    if not wanted:
+        return None
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        fd_dir = os.path.join("/proc", pid, "fd")
+        try:
+            fds = os.listdir(fd_dir)
+        except OSError:
+            continue        # not ours, or exited between listdir and open
+        for fd in fds:
+            try:
+                target = os.readlink(os.path.join(fd_dir, fd))
+            except OSError:
+                continue
+            if target in wanted:
+                return {
+                    "pid": int(pid),
+                    "name": read(os.path.join("/proc", pid, "comm")) or None,
+                }
+    return None
+
+
+def claimed_devices(pads):
+    """Controllers that are plugged in but have no gamepad node of their own.
+
+    The signature is specific on purpose, because the honest failure here is to
+    say nothing:
+
+      * a HID interface bound to a claimable driver that has no input node.
+        Necessary, but far less selective than it looks — hid-steam leaves one
+        such interface behind even while the pad is working, so on its own this
+        means very little;
+      * no pad in the live inventory belonging to the same USB device, which is
+        what actually stops a working controller being called claimed;
+      * a process actually holding one of that device's hidraw nodes.
+
+    The third is load bearing rather than corroborating. Without it a wireless
+    dongle with no controller switched on plausibly satisfies the first two,
+    and announcing that as "in use" would be exactly the kind of confident
+    wrong answer this plugin is supposed to avoid. When no holder can be
+    identified — including when it belongs to another user and /proc is closed
+    to us — we return nothing and the panel says less.
+    """
+    have = []
+    for pad in pads:
+        if pad.get("sysfs"):
+            have.append(os.path.realpath("/sys" + pad["sysfs"]))
+
+    groups = {}
+    for entry in sorted(glob.glob(os.path.join(HID_DEVICES, "*"))):
+        link = os.path.join(entry, "driver")
+        if not os.path.islink(link):
+            continue
+        driver = os.path.basename(os.path.realpath(link)).replace("-", "_")
+        if driver not in CLAIMABLE_DRIVERS:
+            continue
+        usb = usb_parent(entry)
+        if not usb:
+            continue
+        group = groups.setdefault(usb, {"driver": driver, "hidraw": [], "orphan": False})
+        group["hidraw"].extend(sorted(os.listdir(os.path.join(entry, "hidraw"))
+                                      if os.path.isdir(os.path.join(entry, "hidraw")) else []))
+        if not os.path.isdir(os.path.join(entry, "input")):
+            group["orphan"] = True
+
+    out = []
+    for usb, group in sorted(groups.items()):
+        if not group["orphan"]:
+            continue
+        if any(path.startswith(usb + "/") for path in have):
+            continue        # this device still has a working gamepad node
+        holder = hidraw_holder(group["hidraw"])
+        if not holder:
+            continue        # present but unexplained: say nothing
+        product = read(os.path.join(usb, "idProduct"))
+        vendor = read(os.path.join(usb, "idVendor"))
+        name = VALVE_PRODUCTS.get(product)
+        if not name:
+            name = (read(os.path.join(usb, "manufacturer")) + " "
+                    + read(os.path.join(usb, "product"))).strip() or "Controller"
+        out.append({
+            "name": name,
+            "driver": group["driver"],
+            "vendor": vendor,
+            "product": product,
+            # The USB device directory, relative to /sys like a pad's own
+            # sysfs, so the two lists can be checked against each other by
+            # identity rather than by product id — two identical pads, one
+            # working and one claimed, are a real possibility.
+            "sysfs": usb[len("/sys"):] if usb.startswith("/sys") else usb,
+            "connection": "dongle" if product == "1142" else "usb",
+            "holder": holder,
+        })
+    return out
+
+
 # Vendors whose devices are plausibly gamepads, used only for the fallback
 # below. Matching on the word "controller" alone is not enough: an MSI
 # motherboard exposes "MS MSI Gaming Controller" (vendor 1462) for its RGB
@@ -336,6 +479,9 @@ def main():
 
     out = {
         "pads": pads,
+        # Plugged in, but handed to a program that asked for it. Empty unless
+        # all three signals in claimed_devices() agree.
+        "claimed": claimed_devices(pads),
         "dongles": dongles(),
         "drivers": sorted({
             m for m in (read("/proc/modules").split("\n") and [

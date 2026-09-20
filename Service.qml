@@ -70,6 +70,7 @@ QtObject {
       session: root.sessionActive,
       replay: root.replayArmed,
       pads: root.padCount,
+      padsClaimed: root.pads.claimedCount,
       overlay: root.overlay.enabled,
       runtimeDir: root.runtimeDir,
       bootId: root.bootId
@@ -130,7 +131,16 @@ QtObject {
     // Live input for the first connected pad, without reaching for the panel.
     function padsLive(): string {
       if (root.pads.streamNode !== "") { root.pads.stopStream(); return "off" }
-      if (root.pads.padCount === 0) return "no controller connected"
+      if (root.pads.padCount === 0) {
+        // Say which program has it rather than "nothing here", for the same
+        // reason the Pads tab does.
+        var c = root.pads.claimed
+        if (c.length > 0) {
+          var who = (c[0].holder && c[0].holder.name) ? c[0].holder.name : "another program"
+          return c[0].name + " is open in " + who
+        }
+        return "no controller connected"
+      }
       root.pads.startStream(root.pads.pads[0].node)
       return "on"
     }

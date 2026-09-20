@@ -72,6 +72,23 @@ there (Valve is `28de`) rather than loosening the name match — an MSI
 motherboard exposes "MS MSI Gaming Controller" for its RGB lighting and must
 not be offered a rumble test.
 
+**Before widening anything, check the pad has not been taken.** Some drivers
+hand the controller to whichever program opens its hidraw node first and
+unregister the evdev node while that lasts — `hid-steam` does this by design,
+for Steam and equally for Wine/Proton's HID service. A pad that is plugged in
+with no `event*` node is a *claimed* pad, not an undetected one, and widening
+`is_gamepad()` will not bring it back. `gc-pad-probe` reports these separately:
+
+```bash
+bin/gc-pad-probe | jq '.claimed'
+# [ { "name": "Steam Controller", "holder": { "pid": 109162,
+#     "name": "winedevice.exe" } } ]
+```
+
+If your driver behaves this way, add it to `CLAIMABLE_DRIVERS`. If it does not,
+leave it out — the detection is deliberately narrow, and a driver listed there
+that never actually yields its node can only produce false alarms.
+
 ---
 
 ## 2. Measure the buttons and axes
@@ -279,3 +296,8 @@ and issuing a second restart while the first is still coming up leaves you with
 
 See `docs/STEAM-CONTROLLER.md` for what the `hid-steam` driver exposes, the
 layout, and the parts of this plugin that assume a two-stick pad.
+
+Its capabilities, button codes and axis ranges are confirmed against hardware;
+its silhouette and axis directions are not. It is also the reason
+`CLAIMABLE_DRIVERS` exists: this pad disappears whenever a game is running, and
+the empty state names the program holding it.

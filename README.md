@@ -4,7 +4,7 @@ The pre-game ritual in one Omarchy panel: session toggles, controllers and
 instant replay, instead of six separate bar widgets that don't know about each
 other.
 
-> **Status: v0.2.0.** All three tabs work. Built and verified against a real
+> **Status: v0.2.0.** All four tabs work. Built and verified against a real
 > Xbox One S on the `xone` driver, an Xbox Wireless Adapter, and
 > gpu-screen-recorder 6.1.
 
@@ -13,6 +13,27 @@ other.
 ```bash
 omarchy plugin add https://github.com/Dielerorn/omarchy-game-center.git --enable
 ```
+
+## Uninstall
+
+```bash
+omarchy plugin remove dielerorn.gamecenter
+```
+
+That removes the plugin and its bar widget. Three things it may have left
+outside its own directory, only if you used them:
+
+- **The udev rule** — `sudo rm /etc/udev/rules.d/71-gamecenter.rules && sudo udevadm control --reload-rules`
+  (see `docs/UDEV.md`).
+- **MangoHud settings** — delete the block from `### begin game-center` to
+  `### end game-center` in `~/.config/MangoHud/MangoHud.conf`; everything else
+  in that file is yours.
+- **Saved clips** — in `Clips/` under your Videos folder (or under
+  `$OMARCHY_SCREENRECORD_DIR` if you set it). They are yours to keep.
+
+Session changes (stay-awake, do not disturb, night light, power profile) are
+restored when a session ends, so end the session first
+(`omarchy-shell -q gamecenter sessionOff`) if you remove the plugin mid-game.
 
 ## What it does
 
@@ -33,8 +54,18 @@ deadzone control; that lives in Steam Input or the game.
 recent clips. Saving is bound to a key, not to having the panel open:
 
 ```
-omarchy-shell -q dielerorn.gamecenter saveClip
+omarchy-shell -q gamecenter saveClip
 ```
+
+**Overlay** — CPU, GPU, memory, VRAM, temperatures and GPU power in a corner of
+whichever screen the game is on. Frame rate can only be counted from inside the
+game's own process, so for FPS the tab can match MangoHud to the same corner and
+metrics — only when you press the button, and only inside its own marked block
+of `MangoHud.conf`, leaving the rest of your config alone.
+
+Every tab's action is also an IPC call (`omarchy-shell -q gamecenter status`
+lists the state; `sessionToggle`, `replayToggle`, `overlayToggle` and friends
+are in `Service.qml`), so any of them can go on a key.
 
 ## Roadmap
 
@@ -56,10 +87,15 @@ and replay through one recorder instance rather than two.
 ## Requirements
 
 Omarchy with the Quickshell shell, and `gpu-screen-recorder` for replay — which
-Omarchy already ships. Nothing else: the controller tab reads evdev and sysfs
-directly, so live input, battery and rumble need no Python packages and no
-root. `ffmpeg` is used for clip thumbnails if present and degrades to a glyph if
-not.
+Omarchy already ships. The controller tab reads evdev and sysfs directly through
+`python3` using only the standard library, so live input, battery and rumble
+need no extra packages and no root.
+
+Optional, and the plugin says so in place when one is missing:
+
+- `ffmpeg` — clip thumbnails; without it they fall back to a glyph.
+- `mangohud` — frame rate in games; everything else in the overlay works
+  without it.
 
 Two Xbox controls — the guide-button light and pairing from the panel — are
 root-owned and stay hidden unless you install the optional udev rule; the panel
@@ -72,9 +108,11 @@ the buttons, declare the capabilities, draw the silhouette. Art is data in
 `controllers/PadArt.js` and the renderer draws whatever parts a family
 declares, so a pad with trackpads instead of a right stick needs no code.
 
-Support for the **Steam Controller (2015)** is present but has never been run
-against hardware — `docs/STEAM-CONTROLLER.md` says exactly what was taken from
-the kernel driver, what to check first, and where it is most likely wrong.
+The **Steam Controller (2015)** has been checked against a real wired pad:
+every button and axis matches `docs/STEAM-CONTROLLER.md`. When Steam or a Proton
+game takes it over, the panel names the program holding it instead of calling it
+disconnected. The silhouette and axis directions are still unverified — that doc
+says what to check.
 
 ## Development
 

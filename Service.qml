@@ -66,7 +66,7 @@ QtObject {
 
   function statusJson() {
     return JSON.stringify({
-      version: "0.1.0",
+      version: "0.2.0",
       session: root.sessionActive,
       replay: root.replayArmed,
       pads: root.padCount,

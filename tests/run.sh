@@ -237,6 +237,40 @@ case $? in
   *) bad "a controller with a working node is never reported as claimed" ;;
 esac
 
+# Steam Input gives every pad it emulates Valve's vendor id, so the link from
+# an emulated pad to a claimed controller must only be drawn when it is the
+# one possible pairing, and only to a holder that can publish a pad at all.
+# Pure logic, so it runs without any controller present.
+python3 - "$PLUGIN_DIR/bin/gc-pad-probe" <<'EMUEOF' >/dev/null 2>&1
+import importlib.machinery, importlib.util, sys
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("probe", sys.argv[1])
+spec = importlib.util.spec_from_loader("probe", loader)
+probe = importlib.util.module_from_spec(spec)
+loader.exec_module(probe)
+
+steam = {"name": "Steam", "uinput": True}
+wine = {"name": "winedevice.exe", "uinput": False}
+sc = lambda holder: {"name": "Steam Controller", "vendor": "28de", "holder": holder}
+vpad = lambda: {"virtual": True, "vendor": "28de"}
+
+one = vpad()
+assert probe.emulation_for(one, [sc(steam)], [one]) == {"name": "Steam Controller", "holder": "Steam"}
+# Two stand-ins (the Steam Controller's and an Xbox pad's): ambiguous.
+a, b = vpad(), vpad()
+assert probe.emulation_for(a, [sc(steam)], [a, b]) is None
+# Held by a process that publishes nothing: the stand-in is someone else's.
+assert probe.emulation_for(one, [sc(wine)], [one]) is None
+# Real hardware never emulates anything.
+real = {"virtual": False, "vendor": "28de"}
+assert probe.emulation_for(real, [sc(steam)], [real]) is None
+EMUEOF
+if [ $? -eq 0 ]; then
+  ok "an emulated pad is linked to a controller only when unambiguous"
+else
+  bad "an emulated pad is linked to a controller only when unambiguous"
+fi
+
 # Steam Input takes the real controller over hidraw and publishes an emulated
 # Xbox 360 pad in its place, under Valve's own vendor id. Left unlabelled, the
 # panel calls a Steam Controller "Microsoft X-Box 360 pad" and looks broken.

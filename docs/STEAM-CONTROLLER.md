@@ -211,8 +211,11 @@ with no cable and no driver.
 
 A pad on `/devices/virtual/` is now flagged `virtual`, its connection reads
 `virtual` rather than a bus it merely inherited, and when a claimed device
-shares its vendor id the pad carries an `emulates` block naming it. The row
-then reads "emulated by steam" and explains itself in place.
+can be tied to it the pad carries an `emulates` block naming it. The row then
+reads "emulated by Steam" and explains itself in place. The tie needs more
+than a shared vendor id, since Steam Input stamps Valve's on every pad it
+emulates: the holder must have `/dev/uinput` open and the pairing must be the
+only one possible. See `docs/DECISIONS.md`.
 
 Two consequences worth knowing:
 
@@ -238,7 +241,7 @@ a confident wrong answer rather than silence:
 |---|---|
 | A HID interface on a claimable driver with **no input node** | Necessary, but weak on its own — `hid-steam` leaves one behind even while the pad works |
 | **No pad in the live inventory** under that USB device | What actually stops a working controller being called claimed |
-| A process **actually holding** one of its hidraw nodes | Load bearing: without it, a dongle with no controller switched on looks identical |
+| A process **actually holding** one of its hidraw nodes | Rules out a device nobody has open. Not an idle adapter, though: Steam holds the wireless adapter whether or not a controller is on, so an adapter entry only ever says the adapter is in use |
 
 The third is what keeps the message honest, and it is why the holder is found
 by walking `/proc/*/fd` (about 70ms for ~14k descriptors) rather than guessed

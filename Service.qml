@@ -137,7 +137,8 @@ QtObject {
         var c = root.pads.claimed
         if (c.length > 0) {
           var who = (c[0].holder && c[0].holder.name) ? c[0].holder.name : "another program"
-          return c[0].name + " is open in " + who
+          return c[0].name + (c[0].connection === "dongle" ? " adapter" : "")
+               + " is open in " + who
         }
         return "no controller connected"
       }

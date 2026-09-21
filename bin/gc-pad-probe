@@ -268,6 +268,15 @@ def usb_parent(path):
     return ""
 
 
+# How a holder's process name reads in a sentence. `comm` is the raw kernel
+# name; only the ones that are really a product name get prettied up, and
+# anything else ("winedevice.exe") is shown as it is, because that is true.
+HOLDER_NAMES = {
+    "steam": "Steam",
+    "steamwebhelper": "Steam",
+}
+
+
 def hidraw_holder(nodes):
     """Which process holds one of these hidraw nodes open, if we can tell.
 
@@ -276,6 +285,10 @@ def hidraw_holder(nodes):
     than guess at it. Guessing is the thing to avoid here: the obvious message
     is "Steam is using this controller", and on a machine running a Proton game
     with Steam closed that is simply false — the holder is winedevice.exe.
+
+    Also reports whether the same process holds /dev/uinput. A uinput device
+    lives exactly as long as the fd that created it, so a holder with uinput
+    open is one that can be publishing an emulated pad; one without it cannot.
 
     Only processes owned by this user can be inspected. If the holder belongs
     to someone else we return None and the caller says less, rather than
@@ -292,16 +305,20 @@ def hidraw_holder(nodes):
             fds = os.listdir(fd_dir)
         except OSError:
             continue        # not ours, or exited between listdir and open
+        targets = set()
         for fd in fds:
             try:
-                target = os.readlink(os.path.join(fd_dir, fd))
+                targets.add(os.readlink(os.path.join(fd_dir, fd)))
             except OSError:
                 continue
-            if target in wanted:
-                return {
-                    "pid": int(pid),
-                    "name": read(os.path.join("/proc", pid, "comm")) or None,
-                }
+        if targets & wanted:
+            comm = read(os.path.join("/proc", pid, "comm"))
+            return {
+                "pid": int(pid),
+                "name": HOLDER_NAMES.get(comm, comm) or None,
+                "comm": comm or None,
+                "uinput": "/dev/uinput" in targets,
+            }
     return None
 
 
@@ -319,12 +336,14 @@ def claimed_devices(pads):
         what actually stops a working controller being called claimed;
       * a process actually holding one of that device's hidraw nodes.
 
-    The third is load bearing rather than corroborating. Without it a wireless
-    dongle with no controller switched on plausibly satisfies the first two,
-    and announcing that as "in use" would be exactly the kind of confident
-    wrong answer this plugin is supposed to avoid. When no holder can be
-    identified — including when it belongs to another user and /proc is closed
-    to us — we return nothing and the panel says less.
+    The third rules out a device nobody has open, but it is weaker than it
+    looks for a wireless adapter: the Steam client keeps the adapter open the
+    whole time it runs, whether or not a controller is switched on, and
+    hid-steam registers no input node until one is. So an adapter entry means
+    "the adapter is held", never "a controller is on" — the panel words it
+    that way. When no holder can be identified — including when it belongs to
+    another user and /proc is closed to us — we return nothing and the panel
+    says less.
     """
     have = []
     for pad in pads:
@@ -440,11 +459,12 @@ def is_virtual(sysfs_rel):
 def evdev_can_rumble(node):
     """Ask the node itself whether it has FF_RUMBLE.
 
-    Used only when the driver is unknown, which is the virtual-device case.
-    The driver table stays the source of truth for real hardware, where it
-    encodes things a capability bit cannot tell you — but a device with no
-    driver has no row in it, and defaulting an emulated pad to "no rumble"
-    hides a control that demonstrably works.
+    Used only for a driver with no row in DRIVER_CAPS: most often a virtual
+    pad, which has no driver at all, but also real hardware on a driver the
+    table does not know yet. Where there is a row it stays the source of
+    truth, because it encodes things a capability bit cannot tell you — but
+    with no row, defaulting to "no rumble" hides a control that may well work,
+    and the node's own FF bits are the best evidence available.
     """
     if not node:
         return False
@@ -462,24 +482,37 @@ def evdev_can_rumble(node):
         os.close(fd)
 
 
-def emulation_for(pad, claimed):
+def emulation_for(pad, claimed, pads):
     """If this virtual pad stands in for a controller something has taken.
 
-    The link is by vendor: Steam's emulated pad carries Valve's own vendor id
-    (28de:11ff) while the real Steam Controller it replaced sits in `claimed`
-    under the same vendor. That is circumstantial rather than certain, so the
-    panel words it as what it is — one device taken, one appeared — and the
-    claim is only made when both halves are actually present.
+    Steam's emulated pad carries Valve's own vendor id (28de:11ff) while the
+    real Steam Controller it replaced sits in `claimed` under the same vendor.
+    But Steam Input uses that vendor id for every pad it emulates — an Xbox pad
+    routed through it becomes 28de:11ff too — so a matching vendor alone would
+    happily label the Xbox pad's stand-in as the Steam Controller. The link is
+    only drawn when it is unambiguous:
+
+      * the claimed device's holder has /dev/uinput open, so it is actually
+        able to be publishing a pad (winedevice.exe holding the controller
+        publishes nothing);
+      * exactly one virtual pad and exactly one such claimed device share the
+        vendor, so there is only one way to pair them.
+
+    Anything less and this returns None: the pad still reads "emulated",
+    which is true, without naming a controller it may not be.
     """
-    if not pad.get("virtual"):
+    if not pad.get("virtual") or not pad.get("vendor"):
         return None
-    for device in claimed:
-        if device.get("vendor") and device["vendor"] == pad.get("vendor"):
-            return {
-                "name": device["name"],
-                "holder": (device.get("holder") or {}).get("name"),
-            }
-    return None
+    vendor = pad["vendor"]
+    sources = [d for d in claimed
+               if d.get("vendor") == vendor and (d.get("holder") or {}).get("uinput")]
+    stand_ins = [p for p in pads if p.get("virtual") and p.get("vendor") == vendor]
+    if len(sources) != 1 or len(stand_ins) != 1:
+        return None
+    return {
+        "name": sources[0]["name"],
+        "holder": sources[0]["holder"].get("name"),
+    }
 
 
 def connection_for(dev, driver, sysfs=""):
@@ -555,7 +588,7 @@ def main():
     # virtual pad's whole explanation is which real controller went missing.
     claimed = claimed_devices(pads)
     for pad in pads:
-        pad["emulates"] = emulation_for(pad, claimed)
+        pad["emulates"] = emulation_for(pad, claimed, pads)
 
     out = {
         "pads": pads,

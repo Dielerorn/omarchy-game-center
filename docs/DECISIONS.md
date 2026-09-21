@@ -358,10 +358,12 @@ something true instead of something plausible.
 
 The detection needs all three of: a HID interface on a claimable driver with no
 input node; no pad in the inventory under that USB device; and a process
-actually holding one of its hidraw nodes. The third is load bearing rather than
-decorative — a wireless dongle with no controller switched on plausibly
-presents the first two, and announcing that as "in use" would be the same class
-of lie. When no holder can be identified the panel says nothing extra.
+actually holding one of its hidraw nodes. The third rules out a device nobody
+has open, but it does not rule out an idle wireless adapter: the Steam client
+holds the adapter for as long as it runs, controller on or not, and hid-steam
+registers no input node until one connects. So an adapter entry is worded as
+the adapter being in use, never as a controller being on. When no holder can be
+identified the panel says nothing extra.
 
 ## Steam does not remove the controller, it swaps in an emulated one
 
@@ -383,9 +385,14 @@ have, about hardware that does not exist.
 
 So a pad under `/devices/virtual/` is flagged `virtual`, reports its connection
 as `virtual` rather than the bus it inherited, and gains an `emulates` block
-when a claimed device shares its vendor id. The link is by vendor and therefore
-circumstantial, so it is only claimed when both halves are present, and the
-panel words it as what was observed: one controller taken, one pad appeared.
+when it can be tied to a claimed device. Vendor alone is not enough: Steam
+Input gives *every* pad it emulates Valve's vendor id, an Xbox pad included, so
+matching on it would label an Xbox pad's stand-in as the Steam Controller. The
+link is drawn only when the holder has `/dev/uinput` open (a uinput device
+lives as long as the fd that made it, so a holder without one is publishing
+nothing — `winedevice.exe` never is) and exactly one virtual pad and one such
+claimed device share the vendor. Otherwise the pad reads "emulated", which is
+true, and names nothing.
 
 Two things follow that look like bugs and are not:
 

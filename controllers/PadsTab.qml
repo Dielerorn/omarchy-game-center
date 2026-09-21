@@ -42,6 +42,10 @@ Column {
     title: {
       if (root.claimedFirst === null) return "No controllers connected"
       if (root.claimed.length > 1) return root.claimed.length + " controllers are in use"
+      // An adapter is held by Steam whether or not a controller is switched
+      // on, so claim only what is known: the adapter, not a controller.
+      if (root.claimedFirst.connection === "dongle")
+        return root.claimedFirst.name + " adapter is in use"
       return root.claimedFirst.name + " is in use"
     }
     detail: {
@@ -58,6 +62,10 @@ Column {
               ? "Its wireless adapter is open in "
               : "It is open in "
         if (root.claimed.length > 1) subject = "They are open in "
+        if (c.connection === "dongle" && root.claimed.length === 1)
+          return subject + who + ", which takes over any controller paired to "
+               + "it — they report there instead of to the system. Close that "
+               + "program and they come back."
         return subject + who + ", which takes the controller over completely — "
              + "it reports there instead of to the system. Close that program "
              + "and the controller comes back."

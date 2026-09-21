@@ -244,6 +244,7 @@ Item {
   Loader {
     active: root.parts.dpad !== undefined
     sourceComponent: Item {
+      id: dpadItem
       readonly property var d: root.parts.dpad
       x: (d.x - d.arm) * root.k
       y: (d.y - d.arm) * root.k
@@ -253,7 +254,7 @@ Item {
       Rectangle {
         anchors.centerIn: parent
         width: parent.width
-        height: parent.parent.d.thickness * root.k
+        height: dpadItem.d.thickness * root.k
         radius: height / 4
         color: root.restColor(0.18)
 
@@ -275,7 +276,7 @@ Item {
 
       Rectangle {
         anchors.centerIn: parent
-        width: parent.parent.d.thickness * root.k
+        width: dpadItem.d.thickness * root.k
         height: parent.height
         radius: width / 4
         color: root.restColor(0.18)

@@ -338,6 +338,14 @@ Panel {
           foreground: root.panelForeground
           fontFamily: root.fontFamily
         }
+
+        OverlayTab {
+          width: parent.width
+          visible: root.tab === "overlay"
+          overlay: root.overlayStore
+          foreground: root.panelForeground
+          fontFamily: root.fontFamily
+        }
       }
     }
   }

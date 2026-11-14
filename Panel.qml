@@ -244,107 +244,128 @@ Panel {
 
   // ------------------------------------------------------------- popout
 
+  property bool popoutBuilt: false
+
   KeyboardPanel {
     id: popup
     anchorItem: button
     bar: root.bar
     owner: root
     open: root.opened
-    focusTarget: keyCatcher
+    focusTarget: popoutLoader.item
     contentWidth: popup.fittedContentWidth(Style.space(root.panelWidth))
     contentHeight: Math.round(Math.min(
-      Math.max(popup.verticalContentInset, content.implicitHeight + popup.verticalContentInset),
+      Math.max(popup.verticalContentInset, (popoutLoader.item ? popoutLoader.item.implicitHeight : 0) + popup.verticalContentInset),
       popup.availableCardHeight))
 
-    PanelKeyCatcher {
-      id: keyCatcher
+    // Built the first time the popout opens instead of at shell start. The
+    // bar mounts this widget once per monitor, and an always-built tree
+    // re-evaluates all of its bindings on every theme switch while nobody is
+    // looking at it. Once built it stays, so a reopen keeps its state. A
+    // Loader rather than KeyboardPanel.content, which only exists on 4.5+.
+    Loader {
+      id: popoutLoader
       anchors.fill: parent
+      active: root.opened || root.popoutBuilt
+      onLoaded: {
+        root.popoutBuilt = true
+        // KeyboardPanel focuses its target as it opens, which on the first
+        // open is before this item exists.
+        Qt.callLater(function() {
+          if (root.opened && popoutLoader.item) popoutLoader.item.forceActiveFocus()
+        })
+      }
+      sourceComponent: PanelKeyCatcher {
+        id: keyCatcher
+        implicitHeight: content.implicitHeight
+        anchors.fill: parent
 
-      onCloseRequested: root.close()
-      onTabRequested: function(direction) { root.switchPanel(direction) }
-      onMoveRequested: function(dx, dy) { if (dx !== 0) root.moveTab(dx) }
+        onCloseRequested: root.close()
+        onTabRequested: function(direction) { root.switchPanel(direction) }
+        onMoveRequested: function(dx, dy) { if (dx !== 0) root.moveTab(dx) }
 
-      Column {
-        id: content
-        width: parent.width
-        spacing: Style.spacing.md
-
-        PanelHero {
+        Column {
+          id: content
           width: parent.width
-          title: "Game Center"
-          meta: {
-            if (!root.serviceReady) return "Starting…"
-            if (root.session && root.session.busy) return "Working…"
-            return root.sessionOn ? "Session on" : "Session off"
-          }
-          foreground: root.panelForeground
-          fontFamily: root.fontFamily
+          spacing: Style.spacing.md
 
-          iconComponent: Component {
-            Text {
-              text: "󰊴"
-              color: root.sessionOn ? Color.accent : root.panelForeground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.display
+          PanelHero {
+            width: parent.width
+            title: "Game Center"
+            meta: {
+              if (!root.serviceReady) return "Starting…"
+              if (root.session && root.session.busy) return "Working…"
+              return root.sessionOn ? "Session on" : "Session off"
+            }
+            foreground: root.panelForeground
+            fontFamily: root.fontFamily
+
+            iconComponent: Component {
+              Text {
+                text: "󰊴"
+                color: root.sessionOn ? Color.accent : root.panelForeground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.display
+              }
+            }
+
+            // The master switch lives in the hero so it is reachable from every
+            // tab without navigating back.
+            trailingControl: Component {
+              ToggleSwitch {
+                checked: root.sessionOn
+                busy: root.session ? root.session.busy : false
+                interactive: root.serviceReady
+                foreground: root.panelForeground
+                accent: Color.accent
+                onToggled: if (root.session) root.session.toggle()
+              }
             }
           }
 
-          // The master switch lives in the hero so it is reachable from every
-          // tab without navigating back.
-          trailingControl: Component {
-            ToggleSwitch {
-              checked: root.sessionOn
-              busy: root.session ? root.session.busy : false
-              interactive: root.serviceReady
-              foreground: root.panelForeground
-              accent: Color.accent
-              onToggled: if (root.session) root.session.toggle()
-            }
+          ButtonGroup {
+            options: root.tabs
+            value: root.tab
+            foreground: root.panelForeground
+            accent: Color.accent
+            fontFamily: root.fontFamily
+            onChanged: function(value) { root.setTab(value) }
           }
-        }
 
-        ButtonGroup {
-          options: root.tabs
-          value: root.tab
-          foreground: root.panelForeground
-          accent: Color.accent
-          fontFamily: root.fontFamily
-          onChanged: function(value) { root.setTab(value) }
-        }
+          PanelSeparator { width: parent.width }
 
-        PanelSeparator { width: parent.width }
+          SessionTab {
+            width: parent.width
+            visible: root.tab === "session"
+            session: root.session
+            foreground: root.panelForeground
+            fontFamily: root.fontFamily
+          }
 
-        SessionTab {
-          width: parent.width
-          visible: root.tab === "session"
-          session: root.session
-          foreground: root.panelForeground
-          fontFamily: root.fontFamily
-        }
+          ReplayTab {
+            width: parent.width
+            visible: root.tab === "clips"
+            replay: root.replay
+            clips: root.clipStore
+            foreground: root.panelForeground
+            fontFamily: root.fontFamily
+          }
 
-        ReplayTab {
-          width: parent.width
-          visible: root.tab === "clips"
-          replay: root.replay
-          clips: root.clipStore
-          foreground: root.panelForeground
-          fontFamily: root.fontFamily
-        }
+          PadsTab {
+            width: parent.width
+            visible: root.tab === "pads"
+            pads: root.padStore
+            foreground: root.panelForeground
+            fontFamily: root.fontFamily
+          }
 
-        PadsTab {
-          width: parent.width
-          visible: root.tab === "pads"
-          pads: root.padStore
-          foreground: root.panelForeground
-          fontFamily: root.fontFamily
-        }
-
-        OverlayTab {
-          width: parent.width
-          visible: root.tab === "overlay"
-          overlay: root.overlayStore
-          foreground: root.panelForeground
-          fontFamily: root.fontFamily
+          OverlayTab {
+            width: parent.width
+            visible: root.tab === "overlay"
+            overlay: root.overlayStore
+            foreground: root.panelForeground
+            fontFamily: root.fontFamily
+          }
         }
       }
     }
